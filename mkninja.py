@@ -7,17 +7,16 @@ import sys
 import textwrap
 from importlib import machinery, util
 
+_aliases = []
+_proj = []
 _cur_src = []
+_cur_bld = []
 
 def get_cur_src():
     return _cur_src[-1]
 
-_cur_bld = []
-
 def get_cur_bld():
     return _cur_bld[-1]
-
-_proj = []
 
 def add_target_object(target):
     proj = _proj[-1]
@@ -61,15 +60,18 @@ class _Loader(machinery.SourceFileLoader):
       - SRC: the current source file
       - BLD: the current build file
       - add_target(): adds a build target into the generated ninja file
-      - root: the top-level module for the project (so as to avoid needing to
         know the top-level module name to import it)
     """
 
-    def __init__(self, fullname, path, proj):
+    def __init__(self, fullname, path, proj, alias):
         self.proj = proj
+        self.alias = alias
         super().__init__(fullname, path)
 
     def exec_module(self, module):
+        if self.alias is not None:
+            sys.modules[self.alias] = module
+            _aliases[-1][self.alias] = module
         relpath = "/".join(module.__name__.split(".")[1:])
         # set SRC
         src = self.proj.src/relpath
@@ -77,11 +79,6 @@ class _Loader(machinery.SourceFileLoader):
         # set BLD
         bld = self.proj.bld/relpath
         setattr(module, "BLD", bld)
-        # set root
-        if self.proj.root is None:
-            # we know the root of any package must be imported first
-            self.proj.root = module
-        setattr(module, "root", self.proj.root)
         # expose mkninja builtins
         setattr(module, "add_target", add_target)
         setattr(module, "add_target_object", add_target_object)
@@ -102,13 +99,25 @@ class _Finder:
     """
     def __init__(self, proj):
         self.proj = proj
+        self.loaders = {}
 
     def find_spec(self, name, path=None, target=None):
-        if name.split(".")[0] != self.proj.name:
+        nameparts = name.split(".")
+        base = nameparts[0]
+        subs = nameparts[1:]
+        if base not in (self.proj.truename, self.proj.alias):
             # Return None to let the next Finder in sys.meta_path take over.
             return None
+
         # target is None in the normal import case
         assert target is None, f"can't handle target={target}"
+
+        truename = ".".join([self.proj.truename] + subs)
+        if self.proj.alias is not None:
+            alias = ".".join([self.proj.alias] + subs)
+        else:
+            alias = None
+
 
         # We want normal source-loading mechanics, with these exceptions:
         #  - we want to load the wrong source (fullname != path)
@@ -116,15 +125,15 @@ class _Finder:
         #    (submodule_search_locations is a list)
 
         # The code we use for the module root.sub is at root/sub/mkninja.py.
-        submodule_path = "/".join(name.split(".")[1:])
+        submodule_path = "/".join(subs)
         src = str(self.proj.src / submodule_path / "mkninja.py")
 
         self.proj.mkninja_files.append(src)
 
-        loader = _Loader(name, src, self.proj)
+        loader = _Loader(truename, src, self.proj, alias)
 
         return util.spec_from_file_location(
-            name, src, loader=loader, submodule_search_locations=[]
+            truename, src, loader=loader, submodule_search_locations=[]
         )
 
 
@@ -215,24 +224,36 @@ class Target:
 
 
 class Project:
-    def __init__(self, name, src, bld):
-        self.name = name
-        self.src = pathlib.Path(src)
-        self.bld = pathlib.Path(bld)
+    def __init__(self, src, bld, truename, alias=None):
+        self.src = pathlib.Path(src).absolute()
+        self.bld = pathlib.Path(bld).absolute()
+        self.truename = truename
+        self.alias = alias
         self.finder = _Finder(self)
-        # root is the top-level module in the project
-        self.root = None
         self.targets = []
         self.mkninja_files = []
 
     def __enter__(self):
         sys.meta_path = [self.finder] + sys.meta_path
         _proj.append(self)
+        # remove the current set of aliases
+        if _aliases:
+            for alias in _aliases[-1]:
+                sys.modules.pop(alias)
+        _aliases.append({})
         return self
 
     def __exit__(self, *_):
         sys.meta_path.remove(self.finder)
         _proj.pop()
+        # remove any aliases we created
+        for alias in _aliases[-1]:
+            sys.modules.pop(alias)
+        _aliases.pop()
+        if _aliases:
+            # restore our parent's aliases
+            for alias, module in _aliases[-1].items():
+                sys.modules[alias] = module
 
     def gen(self, rerun_script=None):
         f = io.StringIO()
@@ -285,7 +306,8 @@ if __name__ == "__main__":
     src = pathlib.Path(args.src).absolute()
     bld = pathlib.Path(".").absolute()
 
-    root_module_name = "arbitrary_module_name"
+    truename = "arbitrary_module_name"
+    alias = "root"
 
     # store the exact command we ran with
     rerun_script = bld / ".rerun_mkninja.sh"
@@ -298,8 +320,8 @@ if __name__ == "__main__":
     # We don't need the src directory in our sys.path because we have a custom
     # Finder on the sys.metapath.
 
-    with Project(root_module_name, src, bld) as p:
-        importlib.import_module(root_module_name)
+    with Project(src, bld, truename, alias) as p:
+        importlib.import_module(truename)
 
     with open("build.ninja", "w") as f:
         print(p.gen(rerun_script), file=f)
