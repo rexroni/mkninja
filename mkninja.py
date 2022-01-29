@@ -1,10 +1,56 @@
 import argparse
 import importlib
+import io
 import pathlib
-import sys
 import shlex
+import sys
 import textwrap
 from importlib import machinery, util
+
+_cur_src = []
+
+def get_cur_src():
+    return _cur_src[-1]
+
+_cur_bld = []
+
+def get_cur_bld():
+    return _cur_bld[-1]
+
+_proj = []
+
+def add_target_object(target):
+    proj = _proj[-1]
+    proj.targets.append(target)
+    return target
+
+def add_target(
+    *,
+    command=(),
+    outputs=(),
+    inputs=(),
+    after=(),
+    phony=False,
+    workdir=None,
+    dyndep=None,
+    display=None,
+):
+    if workdir is None:
+        workdir = get_cur_src()
+
+    target = Target(
+        command=command,
+        outputs=outputs,
+        inputs=inputs,
+        after=after,
+        phony=phony,
+        workdir=workdir,
+        dyndep=dyndep,
+        display=display,
+    )
+    proj = _proj[-1]
+    proj.targets.append(target)
+    return target
 
 
 class _Loader(machinery.SourceFileLoader):
@@ -13,7 +59,7 @@ class _Loader(machinery.SourceFileLoader):
     is able to load and execute a python script from a file, but we want to
     expose specific values just before executing the module, specifically:
       - SRC: the current source file
-      - BUILD: the current build file
+      - BLD: the current build file
       - add_target(): adds a build target into the generated ninja file
       - root: the top-level module for the project (so as to avoid needing to
         know the top-level module name to import it)
@@ -28,23 +74,25 @@ class _Loader(machinery.SourceFileLoader):
         # set SRC
         src = self.proj.src/relpath
         setattr(module, "SRC", src)
-        # set BUILD
-        build = self.proj.build/relpath
-        setattr(module, "BUILD", build)
+        # set BLD
+        bld = self.proj.bld/relpath
+        setattr(module, "BLD", bld)
         # set root
         if self.proj.root is None:
             # we know the root of any package must be imported first
             self.proj.root = module
         setattr(module, "root", self.proj.root)
-        # expose project methods
-        setattr(module, "add_target", self.proj.add_target)
-        setattr(module, "add_target_object", self.proj.add_target_object)
+        # expose mkninja builtins
+        setattr(module, "add_target", add_target)
+        setattr(module, "add_target_object", add_target_object)
         try:
             # while executing this module, the default workdir should be src
-            self.proj.default_workdir.append(src)
+            _cur_bld.append(bld)
+            _cur_src.append(src)
             return super().exec_module(module)
         finally:
-            self.proj.default_workdir.pop()
+            _cur_bld.pop()
+            _cur_src.pop()
 
 
 class _Finder:
@@ -80,7 +128,7 @@ class _Finder:
         )
 
 
-def _ninjify(s):
+def ninjify(s):
     """apply ninja syntax escapes"""
     s = str(s)
     s = s.replace("$", "$$")
@@ -145,78 +193,50 @@ class Target:
     def gen(self):
         out = f"build"
         if self.outputs:
-            out += ' ' + ' '.join(_ninjify(o) for o in self.outputs)
+            out += ' ' + ' '.join(ninjify(o) for o in self.outputs)
         out += ": TARGET |"
         if self.inputs:
-            out += ' ' + ' '.join(_ninjify(i) for i in self.inputs)
+            out += ' ' + ' '.join(ninjify(i) for i in self.inputs)
         if self.phony:
             out += " PHONY"
         out += " ||"
         if self.after:
-            out += ' ' + ' '.join(_ninjify(a) for a in self.after)
+            out += ' ' + ' '.join(ninjify(a) for a in self.after)
         if self.dyndep:
-            out += " " + _ninjify(self.dyndep)
-        out += "\n CMD = " + " ".join(_ninjify(c) for c in self.command)
-        out += "\n WORKDIR = " + _ninjify(self.workdir)
+            out += " " + ninjify(self.dyndep)
+        out += "\n CMD = " + " ".join(ninjify(c) for c in self.command)
+        out += "\n WORKDIR = " + ninjify(self.workdir)
         if self.dyndep:
-            out += "\n dyndep = " + _ninjify(self.dyndep)
+            out += "\n dyndep = " + ninjify(self.dyndep)
         if self.display:
-            out += "\n DISPLAY = " + _ninjify(self.display)
+            out += "\n DISPLAY = " + ninjify(self.display)
         return out
 
 
+
 class Project:
-    def __init__(self, name, src, build):
+    def __init__(self, name, src, bld):
         self.name = name
         self.src = pathlib.Path(src)
-        self.build = pathlib.Path(build)
+        self.bld = pathlib.Path(bld)
         self.finder = _Finder(self)
         # root is the top-level module in the project
         self.root = None
         self.targets = []
         self.mkninja_files = []
-        self.default_workdir = []
 
     def __enter__(self):
         sys.meta_path = [self.finder] + sys.meta_path
+        _proj.append(self)
         return self
 
     def __exit__(self, *_):
         sys.meta_path.remove(self.finder)
+        _proj.pop()
 
-    def add_target_object(self, target):
-        self.targets.append(target)
-        return target
+    def gen(self, rerun_script=None):
+        f = io.StringIO()
 
-    def add_target(
-        self,
-        *,
-        command=(),
-        outputs=(),
-        inputs=(),
-        after=(),
-        phony=False,
-        workdir=None,
-        dyndep=None,
-        display=None,
-    ):
-        if workdir is None:
-            workdir = self.default_workdir[-1]
-
-        target = Target(
-            command=command,
-            outputs=outputs,
-            inputs=inputs,
-            after=after,
-            phony=phony,
-            workdir=workdir,
-            dyndep=dyndep,
-            display=display,
-        )
-        self.targets.append(target)
-        return target
-
-    def gen(self, f, rerun_script=None):
         print(textwrap.dedent("""
             rule TARGET
              command = cd $WORKDIR && $CMD
@@ -229,7 +249,7 @@ class Project:
 
         if rerun_script:
             mkninja_deps = [__file__]
-            mkninja_deps += [_ninjify(f) for f in self.mkninja_files]
+            mkninja_deps += [ninjify(f) for f in self.mkninja_files]
             mkninja_deps = " ".join(mkninja_deps)
             print(textwrap.dedent(f"""
                 # regenerate ninja files based on the original command line
@@ -243,6 +263,19 @@ class Project:
         for target in self.targets:
             print(target.gen(), file=f, end="\n\n")
 
+        # post-process the text to use $SRC and $BLD
+        text = f.getvalue()
+        bld = str(self.bld)
+        src = str(self.src)
+        if src in bld:
+            text = text.replace(bld, "$BLD")
+            text = text.replace(src, "$SRC")
+        else:
+            text = text.replace(src, "$SRC")
+            text = text.replace(bld, "$BLD")
+
+        return f"# global path variables\nBLD={bld}\nSRC={src}\n\n{text}"
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser("mkninja")
@@ -250,12 +283,12 @@ if __name__ == "__main__":
     args = parser.parse_args(sys.argv[1:])
 
     src = pathlib.Path(args.src).absolute()
-    build = pathlib.Path(".").absolute()
+    bld = pathlib.Path(".").absolute()
 
     root_module_name = "arbitrary_module_name"
 
     # store the exact command we ran with
-    rerun_script = build / ".rerun_mkninja.sh"
+    rerun_script = bld / ".rerun_mkninja.sh"
     with rerun_script.open("w") as f:
         print("#!/bin/sh", file=f)
         quoted = [shlex.quote(sys.executable)]
@@ -265,8 +298,8 @@ if __name__ == "__main__":
     # We don't need the src directory in our sys.path because we have a custom
     # Finder on the sys.metapath.
 
-    with Project(root_module_name, src, build) as p:
+    with Project(root_module_name, src, bld) as p:
         importlib.import_module(root_module_name)
 
     with open("build.ninja", "w") as f:
-        p.gen(f, rerun_script)
+        print(p.gen(rerun_script), file=f)
