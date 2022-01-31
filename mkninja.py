@@ -1,6 +1,7 @@
 import argparse
 import importlib
 import io
+import os
 import pathlib
 import shlex
 import sys
@@ -9,14 +10,14 @@ from importlib import machinery, util
 
 _aliases = []
 _proj = []
-_cur_src = []
-_cur_bld = []
+_src = []
+_bld = []
 
 def get_cur_src():
-    return _cur_src[-1]
+    return _src[-1]
 
 def get_cur_bld():
-    return _cur_bld[-1]
+    return _bld[-1]
 
 def add_target_object(target):
     proj = _proj[-1]
@@ -47,9 +48,30 @@ def add_target(
         dyndep=dyndep,
         display=display,
     )
-    proj = _proj[-1]
-    proj.targets.append(target)
+
+    add_target_object(target)
     return target
+
+## add_subproject needs more support from ninja itself before it is a good
+## idea; currently the subninja command does not provide sufficient insulation
+## to run a subproject in isolation and expect it to be unaffected.
+# def add_subproject(name, alias="root"):
+#     proj = _proj[-1]
+#     src = _src[-1]/name
+#     bld = _bld[-1]/name
+#     root_bld = _bld[0]
+#     with Project(src, bld, name, alias) as p:
+#         module = importlib.import_module(name)
+#
+#     proj.mkninja_files += p.mkninja_files
+#
+#     ninjafile = bld/"build.ninja"
+#     with ninjafile.open("w") as f:
+#         print(p.gen(root_bld, isroot=False), file=f)
+#
+#     proj.subninjas.append(ninjafile)
+#
+#     return module
 
 
 class _Loader(machinery.SourceFileLoader):
@@ -82,14 +104,15 @@ class _Loader(machinery.SourceFileLoader):
         # expose mkninja builtins
         setattr(module, "add_target", add_target)
         setattr(module, "add_target_object", add_target_object)
+        # setattr(module, "add_subproject", add_subproject)
         try:
             # while executing this module, the default workdir should be src
-            _cur_bld.append(bld)
-            _cur_src.append(src)
+            _bld.append(bld)
+            _src.append(src)
             return super().exec_module(module)
         finally:
-            _cur_bld.pop()
-            _cur_src.pop()
+            _bld.pop()
+            _src.pop()
 
 
 class _Finder:
@@ -199,26 +222,33 @@ class Target:
         )
         return outputs[0]
 
-    def gen(self):
+    def gen(self, bld):
+
+        def relbld(s):
+            s = str(s)
+            if str(bld) in s:
+                s = os.path.relpath(s, str(bld))
+            return s
+
         out = f"build"
         if self.outputs:
-            out += ' ' + ' '.join(ninjify(o) for o in self.outputs)
+            out += ' ' + ' '.join(ninjify(relbld(o)) for o in self.outputs)
         out += ": TARGET |"
         if self.inputs:
-            out += ' ' + ' '.join(ninjify(i) for i in self.inputs)
+            out += ' ' + ' '.join(ninjify(relbld(i)) for i in self.inputs)
         if self.phony:
             out += " PHONY"
         out += " ||"
         if self.after:
-            out += ' ' + ' '.join(ninjify(a) for a in self.after)
+            out += ' ' + ' '.join(ninjify(relbld(a)) for a in self.after)
         if self.dyndep:
             out += " " + ninjify(self.dyndep)
         out += "\n CMD = " + " ".join(ninjify(c) for c in self.command)
         out += "\n WORKDIR = " + ninjify(self.workdir)
         if self.dyndep:
-            out += "\n dyndep = " + ninjify(self.dyndep)
+            out += "\n dyndep = " + ninjify(relbld(self.dyndep))
         if self.display:
-            out += "\n DISPLAY = " + ninjify(self.display)
+            out += "\n DISPLAY = " + ninjify(relbld(self.display))
         return out
 
 
@@ -232,6 +262,7 @@ class Project:
         self.finder = _Finder(self)
         self.targets = []
         self.mkninja_files = []
+        self.subninjas = []
 
     def __enter__(self):
         sys.meta_path = [self.finder] + sys.meta_path
@@ -255,18 +286,24 @@ class Project:
             for alias, module in _aliases[-1].items():
                 sys.modules[alias] = module
 
-    def gen(self, rerun_script=None):
+    def gen(self, bld, rerun_script=None, isroot=True):
         f = io.StringIO()
+
+        for subninja in self.subninjas:
+            print("subninja ", ninjify(subninja), file=f)
 
         print(textwrap.dedent("""
             rule TARGET
              command = cd $WORKDIR && $CMD
              description = $DISPLAY
              restat = 1
-
-            # phony target is always out of date
-            build PHONY: phony
         """).lstrip(), file=f)
+
+        if isroot:
+            print(textwrap.dedent("""
+                # phony target is always out of date
+                build PHONY: phony
+            """).lstrip(), file=f)
 
         if rerun_script:
             mkninja_deps = [__file__]
@@ -282,18 +319,18 @@ class Project:
             """).lstrip(), file=f)
 
         for target in self.targets:
-            print(target.gen(), file=f, end="\n\n")
+            print(target.gen(bld), file=f, end="\n\n")
 
         # post-process the text to use $SRC and $BLD
         text = f.getvalue()
         bld = str(self.bld)
         src = str(self.src)
-        if src in bld:
-            text = text.replace(bld, "$BLD")
+        if bld in src:
             text = text.replace(src, "$SRC")
+            text = text.replace(bld, "$BLD")
         else:
-            text = text.replace(src, "$SRC")
             text = text.replace(bld, "$BLD")
+            text = text.replace(src, "$SRC")
 
         return f"# global path variables\nBLD={bld}\nSRC={src}\n\n{text}"
 
@@ -324,4 +361,4 @@ if __name__ == "__main__":
         importlib.import_module(truename)
 
     with open("build.ninja", "w") as f:
-        print(p.gen(rerun_script), file=f)
+        print(p.gen(bld, rerun_script), file=f)
