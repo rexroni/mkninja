@@ -114,6 +114,11 @@ class _Loader(machinery.SourceFileLoader):
             _bld.pop()
             _src.pop()
 
+    def set_data(self, *args, **kwarg):
+        # We don't want to generate annoying __pycache__ directories in the
+        # source tree, so we will disable caching of our mkninja.py files.
+        raise NotImplementedError()
+
 
 class _Finder:
     """
@@ -220,7 +225,7 @@ class Target:
             "passing a Target as a dyndep requires that the target have "
             "exactly one output"
         )
-        return outputs[0]
+        return self.outputs[0]
 
     def gen(self, bld):
 
@@ -241,8 +246,8 @@ class Target:
         out += " ||"
         if self.after:
             out += ' ' + ' '.join(ninjify(relbld(a)) for a in self.after)
-        if self.dyndep:
-            out += " " + ninjify(self.dyndep)
+        # if self.dyndep:
+        #     out += " " + ninjify(self.dyndep)
         out += "\n CMD = " + " ".join(ninjify(c) for c in self.command)
         out += "\n WORKDIR = " + ninjify(self.workdir)
         if self.dyndep:
