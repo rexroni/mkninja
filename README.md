@@ -39,9 +39,9 @@ After initial configuration, `mkninja` will automatically regenerate its
 have been updated, much like CMake or Meson.
 
 When mkninja runs, it imports the top-level `mkninja.py` of your project as
-the special module name `root`.  If you have another `mkninja.py in a
-subdirectory like `tools/mkninja.py` you may import it as a python module as
-`root.tools` and use it as you would normally use a python module.
+the special module name `root`.  If you have another `mkninja.py` in a
+subdirectory like `tools/mkninja.py` you may import it with `import root.tools`
+and use it as you would normally use a python module.
 
 Note that only the `mkninja.py` in the root directory is automatically
 imported.  Any subdirectories containing `mkninja.py` files must be need to be
