@@ -103,7 +103,6 @@ class _Loader(machinery.SourceFileLoader):
         setattr(module, "BLD", bld)
         # expose mkninja builtins
         setattr(module, "add_target", add_target)
-        setattr(module, "add_target_object", add_target_object)
         # setattr(module, "add_subproject", add_subproject)
         try:
             # while executing this module, the default workdir should be src
