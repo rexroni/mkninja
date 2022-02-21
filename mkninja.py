@@ -72,7 +72,7 @@ def add_target(
 #     with ninjafile.open("w") as f:
 #         print(p.gen(root_bld, isroot=False), file=f)
 #
-#     proj.subninjas.append(ninjafile)
+#     proj.subprojects.append(ninjafile)
 #
 #     return module
 
@@ -270,7 +270,7 @@ class Project:
         self.finder = _Finder(self)
         self.targets = []
         self.mkninja_files = []
-        self.subninjas = []
+        self.subprojects = []
 
     def __enter__(self):
         sys.meta_path = [self.finder] + sys.meta_path
@@ -297,8 +297,8 @@ class Project:
     def gen(self, bld, rerun_script=None, isroot=True):
         f = io.StringIO()
 
-        for subninja in self.subninjas:
-            print("subninja ", ninjify(subninja), file=f)
+        for subproject, ninjafile in self.subprojects:
+            print("subproject", ninjify(subproject), ninjify(ninjafile), file=f)
 
         print(textwrap.dedent("""
             rule TARGET
