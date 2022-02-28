@@ -144,7 +144,7 @@ int cmp_string(const void *aptr, const void *bptr){
     if(cmp) return cmp;
     // n-length substrings match, return -1 if a is shorter, 1 if b is shorter
     if(a->len < b->len) return -1;
-    return (int)(b->len > a->len);
+    return (int)(b->len < a->len);
 }
 
 bool string_eq(string_t a, string_t b){
