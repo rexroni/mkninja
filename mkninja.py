@@ -8,16 +8,19 @@ import sys
 import textwrap
 from importlib import machinery, util
 
+# TODO: refactor code so mkninja cli entrypoint is not also the module
+import mkninja
+
 _aliases = []
 _proj = []
 _src = []
 _bld = []
 
 def get_cur_src():
-    return _src[-1]
+    return mkninja._src[-1]
 
 def get_cur_bld():
-    return _bld[-1]
+    return mkninja._bld[-1]
 
 def add_target_object(target):
     proj = _proj[-1]
@@ -91,6 +94,7 @@ class _Loader(machinery.SourceFileLoader):
         super().__init__(fullname, path)
 
     def exec_module(self, module):
+        global _src, _bld
         if self.alias is not None:
             sys.modules[self.alias] = module
             _aliases[-1][self.alias] = module
@@ -106,12 +110,12 @@ class _Loader(machinery.SourceFileLoader):
         # setattr(module, "add_subproject", add_subproject)
         try:
             # while executing this module, the default workdir should be src
-            _bld.append(bld)
-            _src.append(src)
+            mkninja._bld.append(bld)
+            mkninja._src.append(src)
             return super().exec_module(module)
         finally:
-            _bld.pop()
-            _src.pop()
+            mkninja._bld.pop()
+            mkninja._src.pop()
 
     def set_data(self, *args, **kwarg):
         # We don't want to generate annoying __pycache__ directories in the
