@@ -1,5 +1,3 @@
-import argparse
-import importlib
 import io
 import os
 import pathlib
@@ -8,19 +6,16 @@ import sys
 import textwrap
 from importlib import machinery, util
 
-# TODO: refactor code so mkninja cli entrypoint is not also the module
-import mkninja
-
 _aliases = []
 _proj = []
 _src = []
 _bld = []
 
 def get_cur_src():
-    return mkninja._src[-1]
+    return _src[-1]
 
 def get_cur_bld():
-    return mkninja._bld[-1]
+    return _bld[-1]
 
 def add_target_object(target):
     proj = _proj[-1]
@@ -63,7 +58,7 @@ def add_target(
 #     src = _src[-1]/name
 #     bld = _bld[-1]/name
 #     root_bld = _bld[0]
-#     with Project(src, bld, name, alias) as p:
+#     with _Project(src, bld, name, alias) as p:
 #         module = importlib.import_module(name)
 #
 #     proj.mkninja_files += p.mkninja_files
@@ -110,12 +105,12 @@ class _Loader(machinery.SourceFileLoader):
         # setattr(module, "add_subproject", add_subproject)
         try:
             # while executing this module, the default workdir should be src
-            mkninja._bld.append(bld)
-            mkninja._src.append(src)
+            _bld.append(bld)
+            _src.append(src)
             return super().exec_module(module)
         finally:
-            mkninja._bld.pop()
-            mkninja._src.pop()
+            _bld.pop()
+            _src.pop()
 
     def set_data(self, *args, **kwarg):
         # We don't want to generate annoying __pycache__ directories in the
@@ -260,8 +255,7 @@ class Target:
         return out
 
 
-
-class Project:
+class _Project:
     def __init__(self, src, bld, truename, alias=None):
         self.src = pathlib.Path(src).absolute()
         self.bld = pathlib.Path(bld).absolute()
@@ -341,32 +335,3 @@ class Project:
             text = text.replace(src, "$SRC")
 
         return f"# global path variables\nBLD={bld}\nSRC={src}\n\n{text}"
-
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser("mkninja")
-    parser.add_argument("src")
-    args = parser.parse_args(sys.argv[1:])
-
-    src = pathlib.Path(args.src).absolute()
-    bld = pathlib.Path(".").absolute()
-
-    truename = "arbitrary_module_name"
-    alias = "root"
-
-    # store the exact command we ran with
-    rerun_script = bld / ".rerun_mkninja.sh"
-    with rerun_script.open("w") as f:
-        print("#!/bin/sh", file=f)
-        quoted = [shlex.quote(sys.executable)]
-        quoted += [shlex.quote(arg) for arg in sys.argv]
-        print(*quoted, file=f)
-
-    # We don't need the src directory in our sys.path because we have a custom
-    # Finder on the sys.metapath.
-
-    with Project(src, bld, truename, alias) as p:
-        importlib.import_module(truename)
-
-    with open("build.ninja", "w") as f:
-        print(p.gen(bld, rerun_script), file=f)
