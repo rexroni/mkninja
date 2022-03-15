@@ -1,1 +1,1 @@
-from mkninja._core import add_target_object, _Project
+from mkninja._core import add_target_object, _Project, Target

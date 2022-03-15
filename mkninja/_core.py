@@ -65,7 +65,7 @@ def _make_add_target(default_workdir):
 
     def add_target(
         *,
-        command=(),
+        command,
         outputs=(),
         inputs=(),
         after=(),
@@ -86,6 +86,59 @@ def _make_add_target(default_workdir):
         )
 
     return add_target
+
+
+_manifest_bin = os.path.join(os.path.dirname(__file__), "manifest")
+_findglob_bin = os.path.join(os.path.dirname(__file__), "findglob")
+if sys.platform == "win32":
+    _manifest_bin += ".exe"
+    _findglob_bin += ".exe"
+
+
+def _add_manifest(*, command, out, workdir, after=()):
+    if isinstance(command, str):
+        command = shlex.split(command)
+    command = [shlex.quote(c) for c in command]
+    return _add_target(
+        inputs=[manifest_bin],
+        command=["(" *command, ")", "|", _manifest_bin, out],
+        outputs=[out],
+        workdir=workdir,
+        display=f"updating manifest: {' '.join(command)}",
+        phony=True,
+    )
+
+
+def _make_add_manifest(default_workdir):
+
+    def add_manifest(*, command, out, after=(), workdir=default_workdir):
+        return _add_manifest(
+            command=cmd, out=out, after=after, workdir=workdir
+        )
+
+    return add_manifest
+
+
+def _add_glob(*patterns, out, workdir, after=()):
+    if not patterns:
+        raise ValueError("at least one pattern must be provided")
+    patterns = [shlex.quote(p) for p in patterns]
+    return _add_target(
+        inputs=[_findglob_bin],
+        command=[_findglob_bin, *patterns, "|", _manifest_bin, out],
+        outputs=[out],
+        workdir=workdir,
+        display=f"findglob {' '.join(patterns)}",
+        phony=True,
+    )
+
+
+def _make_add_glob(default_workdir):
+
+    def add_glob(*patterns, out, after=(), workdir=default_workdir):
+        return _add_glob(*patterns, out=out, after=after, workdir=workdir)
+
+    return add_glob
 
 
 ## add_subproject needs more support from ninja itself before it is a good
@@ -118,6 +171,8 @@ class _Loader(machinery.SourceFileLoader):
       - SRC: the current source file
       - BLD: the current build file
       - add_target(): adds a build target into the generated ninja file
+      - add_manifest(): adds a target to build a manifest file
+      - add_glob(): adds a target that writes a manifest by calling findglob
     """
 
     def __init__(self, fullname, path, proj, alias):
@@ -139,6 +194,8 @@ class _Loader(machinery.SourceFileLoader):
         setattr(module, "BLD", bld)
         # expose mkninja builtins
         setattr(module, "add_target", _make_add_target(src))
+        setattr(module, "add_manifest", _make_add_manifest(src))
+        setattr(module, "add_glob", _make_add_glob(src))
         # setattr(module, "add_subproject", add_subproject)
         try:
             # while executing this module, the default workdir should be src
@@ -212,7 +269,16 @@ def ninjify(s):
 
 class Target:
     def __init__(
-        self, *, command, outputs, inputs, after, phony, workdir, dyndep, display
+        self,
+        *,
+        command,
+        outputs,
+        inputs,
+        after,
+        phony,
+        workdir,
+        dyndep,
+        display
     ):
         assert isinstance(outputs, (list, tuple)), type(outputs)
         assert isinstance(inputs, (list, tuple)), type(inputs)
@@ -329,7 +395,9 @@ class _Project:
         f = io.StringIO()
 
         for subproject, ninjafile in self.subprojects:
-            print("subproject", ninjify(subproject), ninjify(ninjafile), file=f)
+            print(
+                "subproject", ninjify(subproject), ninjify(ninjafile), file=f
+            )
 
         print(textwrap.dedent("""
             rule TARGET
