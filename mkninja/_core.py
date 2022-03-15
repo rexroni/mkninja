@@ -11,18 +11,28 @@ _proj = []
 _src = []
 _bld = []
 
-def get_cur_src():
-    return _src[-1]
+# on reflection, I think these are a bad idea.
+# They only work during import, so if you have a
+# function that calls add_target() then it will
+# misbehave when called from another file.
+# def get_cur_src():
+#     return _src[-1]
+#
+# def get_cur_bld():
+#     return _bld[-1]
 
-def get_cur_bld():
-    return _bld[-1]
 
 def add_target_object(target):
+    """
+    If you subclass the Target object, you could use mkninja.add_target_object
+    to include it into the ninja file.
+    """
     proj = _proj[-1]
     proj.targets.append(target)
     return target
 
-def add_target(
+
+def _add_target(
     *,
     command=(),
     outputs=(),
@@ -49,6 +59,34 @@ def add_target(
 
     add_target_object(target)
     return target
+
+
+def _make_add_target(default_workdir):
+
+    def add_target(
+        *,
+        command=(),
+        outputs=(),
+        inputs=(),
+        after=(),
+        phony=False,
+        workdir=default_workdir,
+        dyndep=None,
+        display=None,
+    ):
+        return _add_target(
+            command=command,
+            outputs=outputs,
+            inputs=inputs,
+            after=after,
+            phony=phony,
+            workdir=workdir,
+            dyndep=dyndep,
+            display=display,
+        )
+
+    return add_target
+
 
 ## add_subproject needs more support from ninja itself before it is a good
 ## idea; currently the subninja command does not provide sufficient insulation
@@ -80,7 +118,6 @@ class _Loader(machinery.SourceFileLoader):
       - SRC: the current source file
       - BLD: the current build file
       - add_target(): adds a build target into the generated ninja file
-        know the top-level module name to import it)
     """
 
     def __init__(self, fullname, path, proj, alias):
@@ -101,7 +138,7 @@ class _Loader(machinery.SourceFileLoader):
         bld = self.proj.bld/relpath
         setattr(module, "BLD", bld)
         # expose mkninja builtins
-        setattr(module, "add_target", add_target)
+        setattr(module, "add_target", _make_add_target(src))
         # setattr(module, "add_subproject", add_subproject)
         try:
             # while executing this module, the default workdir should be src
