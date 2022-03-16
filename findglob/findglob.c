@@ -1732,7 +1732,7 @@ int findglob_main(int argc, char **argv){
     if(argc < 2){
         fprintf(stderr, "usage:   findglob PATTERN... [ANTIPATERN...]\n");
         fprintf(
-            stderr, "example: findglob '**/*.c' '**/*.h' '!git' '!tests'\n"
+            stderr, "example: findglob '**/*.c' '**/*.h' '!.git' '!tests'\n"
         );
         fprintf(stderr, "also try findglob --help\n");
         return 1;
