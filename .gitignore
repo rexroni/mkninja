@@ -1,0 +1,11 @@
+build
+dist
+mkninja.egg-info
+
+findglob/findglob
+findglob/test
+manifest/manifest
+
+mkninja/findglob
+mkninja/manifest
+__pycache__
