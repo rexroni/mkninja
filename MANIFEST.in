@@ -1,0 +1,3 @@
+include findglob/findglob.c
+include findglob/main.c
+include manifest/manifest.c
