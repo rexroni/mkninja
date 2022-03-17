@@ -1,7 +1,8 @@
-import shutil
 import os
-import sys
+import pathlib
+import shutil
 import subprocess
+import sys
 import tempfile
 
 import setuptools
@@ -74,14 +75,22 @@ def compile_exe(cc, filein, fileout):
 
 
 if __name__ == "__main__":
+    HERE = pathlib.Path(__file__).parent
+    with (HERE / "mkninja" / "__init__.py").open() as f:
+        firstline = next(iter(f))
+        assert firstline.startswith("__version__ = ")
+        version = firstline.split('"')[1]
+
+    readme = (HERE / "README.md").read_text()
+
     setup_args = dict(
         name="mkninja",
-        version="0.1.0",
+        version=version,
         author="Rex Roni",
         author_email="rexroni@splintermail.com",
         description="A python front-end for ninja",
-        # long_description=long_description,
-        # long_description_content_type="text/markdown",
+        long_description=readme,
+        long_description_content_type="text/markdown",
         url="https://github.com/rexroni/mkninja",
         classifiers=[
             "Programming Language :: Python :: 3",
@@ -90,7 +99,7 @@ if __name__ == "__main__":
         ],
         packages=["mkninja"],
         python_requires=">=3.6",
-        entry_points={"console_scripts": ["mkninja = mkninja.__main__:main"]}
+        entry_points={"console_scripts": ["mkninja = mkninja.__main__:main"]},
     )
 
     # when building the source distribution, we set an environment variable to

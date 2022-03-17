@@ -6,6 +6,8 @@
 #include <stdlib.h>
 #include <errno.h>
 
+#define VERSION "0.1.0"
+
 #define FILE_NOT_FOUND 2
 #define STRING_NOT_FOUND ((size_t)-1)
 
@@ -467,11 +469,20 @@ cu:
 }
 
 
-void print_help(void){
-    fprintf(stderr, "usage: manifest [SEP] OUTPUT <filenames\n");
-    fprintf(stderr, "where SEP may be one of: -0 -cr -lf -crlf -lfcr\n");
-    fprintf(stderr, "when SEP is not provided, stdin is split on ");
-    fprintf(stderr, "automatically-detected line endings\n");
+int print_help(FILE *f){
+    fprintf(f, "usage: manifest [SEP] OUTPUT <filenames\n");
+    fprintf(f, "where SEP may be one of: -0 -cr -lf -crlf -lfcr\n");
+    fprintf(f, "when SEP is not provided, stdin is split on ");
+    fprintf(f, "automatically-detected line endings\n");
+    // return 0 or 1 to make main easier to write.
+    return f == stdout ? 0 : 1;
+}
+
+
+int print_version(){
+    fprintf(stdout, "%s\n", VERSION);
+    // return 0 to make main easier to write.
+    return 0;
 }
 
 
@@ -481,27 +492,21 @@ int main(int argc, char **argv){
     char *output = NULL;
     bool nomoreflags = false;
     for(int i = 1; i < argc; i++){
-        if(nomoreflags && output){
-            print_help();
-            return 1;
-        }
+        if(nomoreflags && output) return print_help(stderr);
+        else if(nomoreflags) output = argv[i];
         else if(strcmp(argv[i], "-0") == 0) sep = "\0";
         else if(strcmp(argv[i], "-cr") == 0) sep = "\r";
         else if(strcmp(argv[i], "-lf") == 0) sep = "\n";
         else if(strcmp(argv[i], "-crlf") == 0) sep = "\r\n";
         else if(strcmp(argv[i], "-lfcr") == 0) sep = "\n\r";
+        else if(strcmp(argv[i], "--help") == 0) return print_help(stdout);
+        else if(strcmp(argv[i], "-h") == 0) return print_help(stdout);
+        else if(strcmp(argv[i], "--version") == 0) return print_version();
         else if(strcmp(argv[i], "--") == 0) nomoreflags = true;
-        else if(output){
-            print_help();
-            return 1;
-        }else{
-            output = argv[i];
-        }
+        else if(output) return print_help(stderr);
+        else output = argv[i];
     }
-    if(!output){
-        print_help();
-        return 1;
-    }
+    if(!output) return print_help(stderr);
 
     return manifest(output, sep);
 }

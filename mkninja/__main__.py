@@ -10,6 +10,9 @@ import mkninja
 def main():
     parser = argparse.ArgumentParser("mkninja")
     parser.add_argument("src")
+    parser.add_argument(
+        "--version", action="version", version=mkninja.__version__
+    )
     args = parser.parse_args(sys.argv[1:])
 
     src = pathlib.Path(args.src).absolute()

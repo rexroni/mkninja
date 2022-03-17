@@ -12,6 +12,8 @@
     #include <windows.h>
 #endif
 
+#define VERSION "0.1.0"
+
 // F(string) matches a "%.*s" in a format string
 #define F(string) (int)(string).len, (string).text
 
@@ -1739,6 +1741,10 @@ int findglob_main(int argc, char **argv){
     }
     if(strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0){
         print_help(stdout);
+        return 0;
+    }
+    if(strcmp(argv[1], "--version") == 0){
+        fprintf(stdout, "%s\n", VERSION);
         return 0;
     }
     int retval = 0;
