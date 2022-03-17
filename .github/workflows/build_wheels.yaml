@@ -1,0 +1,126 @@
+# based on github.com/scikit-build/ninja-python-distributions's build.yml
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+
+jobs:
+  # TODO: enable tests for findglob on each OS
+  # test_findglob:
+  #   name: Test fingdlob
+  #   runs-on: ${{ matrix.os }}
+  #   strategy:
+  #     matrix:
+  #       os: [ubuntu-20.04, macos-10.15, windows-2019]
+  #   steps:
+  #     - uses: actions/checkout@v2
+
+  #     - name: Test findglob (unix)
+  #       run: cd findglob && make test && ./test
+  #       if: runner.os != 'Windows'
+
+  #     - name: Test findglob (windows)
+  #       run: cd findglob && cmd /c make && test
+  #       if: runner.os == 'Windows'
+
+  build_wheels:
+    name: Build ${{ matrix.arch }} wheels on ${{ matrix.os }}
+    # needs: [test_findglob]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-20.04
+            arch: "x86_64"
+          - os: ubuntu-20.04
+            arch: "i686"
+          - os: ubuntu-20.04
+            arch: "aarch64"
+          - os: ubuntu-20.04
+            arch: "ppc64le"
+          - os: ubuntu-20.04
+            arch: "s390x"
+          - os: windows-2019
+            arch: "AMD64"
+          - os: windows-2019
+            arch: "x86"
+          - os: macos-10.15
+            arch: "universal2"
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v1.2.0
+        if: runner.os == 'Linux'
+
+      - name: Build wheels
+        uses: pypa/cibuildwheel@v2.3.1
+        env:
+          CIBW_ARCHS: "${{ matrix.arch }}"
+
+      - uses: actions/upload-artifact@v2
+        with:
+          path: ./wheelhouse/*.whl
+
+  build_sdist:
+    name: Build sdist
+    # needs: [test_findglob]
+    runs-on: ubuntu-20.04
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Build sdist
+        run: pipx run build --sdist
+
+      - uses: actions/upload-artifact@v2
+        with:
+          path: dist/*.tar.gz
+
+  test_sdist:
+    name: Test sdist with python ${{ matrix.python }}
+    needs: [build_sdist]
+    runs-on: ubuntu-20.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.6", "3.10-dev"]
+
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-python@v2
+        name: Install python ${{ matrix.python }}
+        with:
+          python-version: ${{ matrix.python }}
+
+      - uses: actions/download-artifact@v2
+        with:
+          name: artifact
+          path: sdist
+
+      - name: Install sdist
+        run: pip install sdist/*.tar.gz
+
+      - name: Test findglob binary
+        run: mkninja --findglob --help
+
+      - name: Test manifest binary
+        run: mkninja --manifest --help
+
+  check_dist:
+    name: Check dist
+    needs: [build_wheels, build_sdist, test_sdist]
+    runs-on: ubuntu-20.04
+    steps:
+      - uses: actions/download-artifact@v2
+        with:
+          name: artifact
+          path: dist
+
+      - name: twine check
+        run: pipx run twine check --strict dist/*

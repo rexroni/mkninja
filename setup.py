@@ -1,77 +1,83 @@
 import os
 import pathlib
-import shutil
-import subprocess
 import sys
-import tempfile
 
 import setuptools
-import setuptools.dist
+import distutils.extension
+import distutils.command.build_ext
 
-def find_cc():
+# We subclass the build_ext command to build executables instead of building
+# python extensions based on [1].
+
+# This is sort of a hack to trick setuptools into thinking that the package is
+# not pure.  Otherwise, if we simply compile the binaries and put them into
+# place when we build the wheel, the wheel gets improperly labeled with a
+# "Root-is-purelib: true" tag, then auditwheel pukes when it finds compiled
+# binaries in a purelib directory (see [2]).
+#
+# Cons of this strategy:
+#  - it is far more opaque than just compiling the files ourselves
+#  - it is abusing setuptools/distutils to do something other than intended
+#
+# Pros of this strategy:
+#  - we get to use cibuildwheel to build a ton of wheels in a github action
+#  - it seems to pick up the compiler pretty reliably, even on windows
+#  - it is the only way I know how to get a PEP-427-compliant wheel
+#
+# [1] github.com/pypa/packaging-problems/issues/542#issuecomment-912838470
+# [2] peps.python.org/pep-0427/#what-s-the-deal-with-purelib-vs-platlib
+
+ext_modules = [
+    distutils.extension.Extension("mkninja.findglob", ["findglob/main.c"]),
+    distutils.extension.Extension("mkninja.manifest", ["manifest/manifest.c"]),
+]
+
+class build_exe(distutils.command.build_ext.build_ext):
     """
-    distutils has tooling to detect compilers for a platform, but I find that
-    it is not very good at detecting visual studio installs, meaning that I
-    have to disable the detection a la [1] to get it to work.
-
-    In windows, you need to be careful when you compile extensions that the
-    MSVC C runtime you use matches what was used to compile the python
-    interpreter, which would be a good reason to use something like maybe
-    setuptools.extension.Extension to find the compiler.  But we're just
-    compiling standalone executables, so that doesn't matter.
-
-    Therefore we do the dumbest thing and look for the compiler ourself.
-
-    [1] docs.python.org/3/distutils/apiref.html#module-distutils.msvccompiler
+    Subclass the build_ext command so we can compile executables instead of
+    shared objects.
     """
-    if "CC" in os.environ:
-        return os.environ["CC"]
 
-    if sys.platform == "win32":
-        if shutil.which("cl"):
-            return "cl"
-        raise ValueError(
-            "unable to find a compiler.  Is VisualStudio installed, and did "
-            "you call the appropriate vcvars .bat file?"
-        )
+    ## allow the default .run() to configure and setup the compiler.
+    # def run(self):
+    #    ...
 
-    if shutil.which("gcc"):
-        return "gcc"
-    if shutil.which("clang"):
-        return "clang"
-    raise ValueError("unable to find gcc or clang, is one installed?")
+    def build_extensions(self):
+        for ext in self.extensions:
+            objs = self.compiler.compile(
+                ext.sources,
+                output_dir=self.build_temp,
+                debug=self.debug,
+                extra_postargs=self.compile_postargs(),
+            )
+            self.compiler.link_executable(
+                objs,
+                self.get_executable_output(ext),
+                debug=self.debug,
+                target_lang="c",
+            )
 
-def compile_exe(cc, filein, fileout):
-    basename = os.path.basename(fileout)
-    if sys.platform == "win32":
-        # windows
-        assert cc == "cl"
-        fileout = fileout + ".exe"
-        cmd = [
-            "cl",
-            filein,
-            # optimize for speed
-            "/O2",
-            # only Wall is higher than W4
-            "/W4",
-            # treat warnings as errors
-            "/WX",
-            # /wd4221, /wd4204: we don't care about ansi compliance
-            "/wd4221",
-            "/wd4204",
-            # specify the output name
-            "/link",
-            f"/out:{fileout}.exe"
-        ]
-        subprocess.run(cmd, check=True)
-        objfile = basename + ".obj"
-        os.remove(objfile)
-        return basename + ".exe"
+    def compile_postargs(self):
+        if sys.platform == "win32":
+            return [
+                # optimize for speed
+                "/O2",
+                # only Wall is higher than W4
+                "/W4",
+                # treat warnings as errors
+                "/WX",
+                # /wd4221, /wd4204: we don't care about ansi compliance
+                "/wd4221",
+                "/wd4204",
+            ]
 
-    # unix
-    cmd = [cc, "-o", fileout, filein, "-Wall", "-Wextra", "-Werror", "-O3"]
-    subprocess.run(cmd, check=True)
-    return basename
+        return ["-Wall", "-Wextra", "-Werror", "-O3"]
+
+    def get_executable_output(self, ext):
+        return os.path.join(self.build_lib, *ext.name.split("."))
+
+    def get_outputs(self):
+        return [self.get_executable_output(ext) for ext in self.extensions]
 
 
 if __name__ == "__main__":
@@ -100,15 +106,8 @@ if __name__ == "__main__":
         packages=["mkninja"],
         python_requires=">=3.6",
         entry_points={"console_scripts": ["mkninja = mkninja.__main__:main"]},
+        ext_modules=ext_modules,
+        cmdclass={"build_ext": build_exe},
     )
-
-    # when building the source distribution, we set an environment variable to
-    # ensure that we aren't including extraneous built binaries.
-    if "MKNINJA_BUILD_SDIST" not in os.environ:
-        cc = find_cc()
-        manifest = compile_exe(cc, "manifest/manifest.c", "mkninja/manifest")
-        findglob = compile_exe(cc, "findglob/main.c", "mkninja/findglob")
-        # Include the executables (not part of MANIFEST.in) for non-sdist runs.
-        setup_args["package_data"] = {"mkninja": [manifest, findglob]}
 
     setuptools.setup(**setup_args)

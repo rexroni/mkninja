@@ -1745,6 +1745,8 @@ int test_e2e(){
         "d/f\n"
     );
 
+    // XXX: enable this test on windows
+    #ifndef _WIN32
     // a / root causes absolute filepaths
     TEST_CASE(NULL, "/*highly_unlikely_name*", "example/**",
         CWD "example\n"
@@ -1756,6 +1758,7 @@ int test_e2e(){
         CWD "example/d/e\n"
         CWD "example/d/f\n"
     );
+    #endif
 
     // avoid printing directories (a rather silly example)
     TEST_CASE("example", "**", ":!d:/**", "");
