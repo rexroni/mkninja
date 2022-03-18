@@ -1,2 +1,4 @@
-all:
-	gcc -Wall -Wextra manifest.c -o manifest
+all: manifest
+
+manifest: makefile manifest.c
+	gcc -Wall -Wextra -Werror manifest.c -o manifest -O3

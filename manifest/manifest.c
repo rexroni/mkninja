@@ -16,6 +16,15 @@
 #include <fileapi.h>
 #include <sys/utime.h>
 
+#define fopen fopen_compat
+FILE *fopen_compat(const char *filename, const char *mode){
+    FILE *f = NULL;
+    errno_t x = fopen_s(&f, filename, mode);
+    // the global errno is also set, so we can discard this.
+    (void)x;
+    return f;
+}
+
 void win_perror(const char *msg){
     char buf[256];
     DWORD winerr = GetLastError();
@@ -86,7 +95,6 @@ bool isnewer(filetime_t a, filetime_t b){
             && a.dwLowDateTime > b.dwLowDateTime
         )
     );
-    return 0;
 }
 
 #else // UNIX
@@ -441,7 +449,7 @@ int manifest(const char *output, char *sep_cstr){
        new as the latest matching file we found */
     for(size_t i = 0; i < names_len; i++){
         filetime_t info;
-        int ret = get_filetime(names[i].text, &info);
+        ret = get_filetime(names[i].text, &info);
         if(ret){
             compat_perror(names[i].text);
             retval = 1;
