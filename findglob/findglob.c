@@ -5,6 +5,7 @@
 #include <stdint.h>
 #include <errno.h>
 #include <limits.h>
+#include <sys/stat.h>
 
 #ifndef _WIN32 // UNIX
     #include <dirent.h>
@@ -112,6 +113,7 @@ void win_perror(const char *msg){
 }
 
 #define PATH_MAX MAX_PATH
+#define S_ISDIR(mode) (((mode) & S_IFMT) == S_IFDIR)
 #endif
 
 struct pool_t;
@@ -1452,6 +1454,7 @@ match_array_t *matches_init(
     const pattern_t *patterns,
     size_t npatterns,
     string_t start,
+    string_t printstart,
     bool *isterminal
 ){
     *isterminal = false;
@@ -1462,7 +1465,7 @@ match_array_t *matches_init(
         match_array_add(matches, match);
     }
 
-    // traverse through these matchepatternss, one section of start at a time
+    // traverse through these match patterns, one section of start at a time
     path_iter_t it;
     bool _isterminal = false;
     for(string_t text = path_iter(&it, start); it.ok; text = path_next(&it)){
@@ -1475,6 +1478,12 @@ match_array_t *matches_init(
         );
         // non-intermediate means we don't continue
         if(!isintermediate){
+            // if this was a perfect match, print before exiting
+            if(_isterminal && (path_next(&it), !it.ok)){
+                fprintf(
+                    stdout, "%.*s\n", (int)printstart.len, printstart.text
+                );
+            }
             match_array_put(mem, matches);
             match_array_put(mem, newmatches);
             return match_array_get(p, mem, 32);;
@@ -1484,6 +1493,58 @@ match_array_t *matches_init(
     }
     *isterminal = _isterminal;
     return matches;
+}
+
+// check if a file-type start should be included
+bool matches_initial_file(
+    pool_t **p,
+    match_array_t **mem,
+    const pattern_t *patterns,
+    size_t npatterns,
+    string_t start
+){
+    // populate initial matches
+    match_array_t *matches = match_array_get(p, mem, 32);
+    for(size_t i = 0; i < npatterns; i++){
+        match_t match = { .pattern = &patterns[i], .matched = 0 };
+        match_array_add(matches, match);
+    }
+
+    // count how many sections are in this start
+    path_iter_t it;
+    size_t last_sect = 0;
+    for(path_iter(&it, start); it.ok; path_next(&it)) last_sect = it.i;
+
+    // walk through the different sections of the start
+    for(string_t text = path_iter(&it, start); it.ok; text = path_next(&it)){
+        // the last section is not a directory
+        if(it.i == last_sect){
+            // last section is a file type
+            bool keep = keep_file(matches, text);
+            match_array_put(mem, matches);
+            return keep;
+        }
+
+        match_array_t *newmatches = match_array_get(p, mem, 32);
+        // we only care about the final isterminal
+        bool isterminal = false;
+        bool isintermediate = false;
+        process_dir(
+            text, matches, newmatches, &isintermediate, &isterminal
+        );
+        // non-intermediate means we don't continue
+        if(!isintermediate){
+            match_array_put(mem, matches);
+            match_array_put(mem, newmatches);
+            return false;
+        }
+        match_array_put(mem, matches);
+        matches = newmatches;
+    }
+
+    // we should have already exited
+    fprintf(stderr, "matches_initial_file did not exit properly\n");
+    exit(1);
 }
 
 // recursive layer beneath findglob
@@ -1698,19 +1759,53 @@ int findglob(
         // rearrange temp_patterns to have antipatterns first
         qsort_patterns(temp_patterns, it.nmembers);
 
-        if(printstart.len + 1 > pathcap){
-            pathcap *= 2;
+        size_t minpathcap = MAX(printstart.len, start.len) + 1;
+        if(minpathcap > pathcap){
+            while(minpathcap > pathcap){
+                pathcap *= 2;
+            }
             path = realloc(path, pathcap);
             if(!path){
                 fprintf(stderr, "out of memory\n");
                 exit(1);
             }
         }
+
+        // check if start points to a file or a directory
+        memcpy(path, start.text, start.len);
+        path[start.len] = '\0';
+        struct stat st;
+        int ret = stat(path, &st);
+        if(ret){
+            perror(path);
+            exit(1);
+        }
+
+        if(!S_ISDIR(st.st_mode)){
+            // special case: this start is a file
+            if(
+                matches_initial_file(
+                    &m.p, &m.ma, temp_patterns, it.nmembers, start
+                )
+            ){
+                fprintf(
+                    stdout, "%.*s\n", (int)printstart.len, printstart.text
+                );
+            }
+            continue;
+        }
+
         memcpy(path, printstart.text, printstart.len);
         path[printstart.len] = '\0';
         bool isterminal;
         match_array_t *matches = matches_init(
-            &m.p, &m.ma, temp_patterns, it.nmembers, start, &isterminal
+            &m.p,
+            &m.ma,
+            temp_patterns,
+            it.nmembers,
+            start,
+            printstart,
+            &isterminal
         );
         if(isterminal){
             // empty-start case: print '.' instead

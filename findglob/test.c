@@ -1,7 +1,6 @@
 #include "findglob.c"
 
 #include <fcntl.h>
-#include <sys/stat.h>
 #ifndef _WIN32 // UNIX
     #include <unistd.h>
 #else // WINDOWS
@@ -1436,7 +1435,7 @@ int matches_init_test_case(
 
     bool isterminal;
     match_array_t *matches_out = matches_init(
-        p, ma, patterns, nin, start, &isterminal
+        p, ma, patterns, nin, start, start, &isterminal
     );
 
     int failures = 0; // 1 = patterns, 2 = terminal
@@ -1799,6 +1798,18 @@ int test_e2e(){
         "d/e\n"
         "d/f\n"
     );
+
+    // match explicitly named files
+    TEST_CASE("example", "a", "a\n");
+    TEST_CASE("example", "a/", "");
+    TEST_CASE("example", "a", "!a/", "a\n");
+    TEST_CASE("example", "a", ":!f:a", "");
+
+    // match explicitly named directories
+    TEST_CASE(NULL, "example", "example\n");
+    TEST_CASE(NULL, "example/", "example\n");
+    TEST_CASE(NULL, "example", "!example/", "");
+    TEST_CASE(NULL, "example", ":!f:example", "example\n");
 
     cleanup_e2e_test();
 
