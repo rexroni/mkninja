@@ -13,7 +13,7 @@
     #include <windows.h>
 #endif
 
-#define VERSION "0.1.0"
+#define VERSION "0.1.1"
 
 // F(string) matches a "%.*s" in a format string
 #define F(string) (int)(string).len, (string).text

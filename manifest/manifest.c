@@ -6,7 +6,7 @@
 #include <stdlib.h>
 #include <errno.h>
 
-#define VERSION "0.1.0"
+#define VERSION "0.1.1"
 
 #define FILE_NOT_FOUND 2
 #define STRING_NOT_FOUND ((size_t)-1)
