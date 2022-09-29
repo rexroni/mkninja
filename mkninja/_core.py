@@ -100,8 +100,8 @@ def _add_manifest(*, command, out, workdir, after=()):
         command = shlex.split(command)
     command = [shlex.quote(c) for c in command]
     return _add_target(
-        inputs=[manifest_bin],
-        command=["(" *command, ")", "|", _manifest_bin, out],
+        inputs=[_manifest_bin],
+        command=["(", *command, ")", "|", _manifest_bin, out],
         outputs=[out],
         workdir=workdir,
         display=f"updating manifest: {' '.join(command)}",
@@ -113,7 +113,7 @@ def _make_add_manifest(default_workdir):
 
     def add_manifest(*, command, out, after=(), workdir=default_workdir):
         return _add_manifest(
-            command=cmd, out=out, after=after, workdir=workdir
+            command=command, out=out, after=after, workdir=workdir
         )
 
     return add_manifest
