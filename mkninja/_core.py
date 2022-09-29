@@ -100,7 +100,7 @@ def _add_manifest(*, command, out, workdir, after=()):
         command = shlex.split(command)
     command = [shlex.quote(c) for c in command]
     return _add_target(
-        inputs=[_manifest_bin],
+        inputs=[],
         command=["(", *command, ")", "|", _manifest_bin, out],
         outputs=[out],
         workdir=workdir,
@@ -124,7 +124,7 @@ def _add_glob(*patterns, out, workdir, after=()):
         raise ValueError("at least one pattern must be provided")
     patterns = [shlex.quote(p) for p in patterns]
     return _add_target(
-        inputs=[_findglob_bin],
+        inputs=[],
         command=[_findglob_bin, *patterns, "|", _manifest_bin, out],
         outputs=[out],
         workdir=workdir,
