@@ -1812,7 +1812,7 @@ int findglob(
             fprintf(stdout, "%s\n", printstart.len ? path : ".");
         }
         if(matches->len){
-            int ret = _findglob(&m, &path, &pathcap, printstart.len, matches);
+            ret = _findglob(&m, &path, &pathcap, printstart.len, matches);
             // finish the loop but remember the error
             if(ret) retval = ret;
         }
