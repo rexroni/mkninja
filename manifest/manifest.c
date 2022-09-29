@@ -355,13 +355,13 @@ cu:
 int join_names(const string_t *names, size_t n, string_t *out){
     // build a big list of all names, one per line
     *out = (string_t){0};
-    size_t outlen = 0;
+    size_t outcap = 0;
     for(size_t i = 0; i < n; i++){
-        outlen += names[i].len;
+        outcap += names[i].len;
     }
     // account for newlines and \0
-    outlen += n + 1;
-    char *buffer = malloc(outlen);
+    outcap += n + 1;
+    char *buffer = malloc(outcap);
     if(!buffer){
         perror("malloc");
         return 1;
@@ -370,7 +370,7 @@ int join_names(const string_t *names, size_t n, string_t *out){
     // write all the names into the buffer
     size_t len = 0;
     for(size_t i = 0; i < n; i++){
-        size_t limit = outlen - len;
+        size_t limit = outcap - len;
         size_t written = snprintf(&buffer[len], limit, "%s\n", names[i].text);
         if(written >= limit){
             // only possible with an arithmetic error
@@ -381,7 +381,7 @@ int join_names(const string_t *names, size_t n, string_t *out){
         len += written;
     }
 
-    *out = (string_t){ .len=outlen, .text=buffer };
+    *out = (string_t){ .len=len, .text=buffer };
     return 0;
 }
 
