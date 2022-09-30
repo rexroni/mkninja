@@ -358,6 +358,13 @@ class Target:
             out += "\n DISPLAY = " + ninjify(relbld(self.display))
         return out
 
+    def __str__(self):
+        assert len(self.outputs) == 1, (
+            "only targets with exactly one output support implicit string "
+            f"conversions; this target has outputs {outputs}"
+        )
+        return str(self.outputs[0])
+
 
 class _Project:
     def __init__(self, src, bld, truename, alias=None):
