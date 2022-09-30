@@ -104,7 +104,7 @@ def _add_manifest(*, command, out, workdir, after=()):
         command=["(", *command, ")", "|", _manifest_bin, out],
         outputs=[out],
         workdir=workdir,
-        display=f"updating manifest: {' '.join(command)}",
+        display=f"updating manifest: {' '.join(str(c) for c in command)}",
         phony=True,
     )
 
@@ -129,7 +129,7 @@ def _add_glob(*patterns, out, workdir, after=()):
         outputs=[out],
         workdir=workdir,
         after=after,
-        display=f"findglob {' '.join(patterns)}",
+        display=f"findglob {' '.join(str(p) for p in patterns)}",
         phony=True,
     )
 
