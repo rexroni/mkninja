@@ -128,6 +128,7 @@ def _add_glob(*patterns, out, workdir, after=()):
         command=[_findglob_bin, *patterns, "|", _manifest_bin, out],
         outputs=[out],
         workdir=workdir,
+        after=after,
         display=f"findglob {' '.join(patterns)}",
         phony=True,
     )
