@@ -487,7 +487,7 @@ int print_help(FILE *f){
 }
 
 
-int print_version(){
+int print_version(void){
     fprintf(stdout, "%s\n", VERSION);
     // return 0 to make main easier to write.
     return 0;
