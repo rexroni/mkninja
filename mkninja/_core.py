@@ -128,7 +128,7 @@ def _make_add_manifest(default_workdir):
 def _add_glob(*patterns, out, workdir, after=(), **tags):
     if not patterns:
         raise ValueError("at least one pattern must be provided")
-    patterns = [shlex.quote(p) for p in patterns]
+    patterns = [shlex.quote(str(p)) for p in patterns]
     return _add_target(
         inputs=[],
         command=[_findglob_bin, *patterns, "|", _manifest_bin, out],
