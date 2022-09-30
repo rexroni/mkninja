@@ -2,6 +2,7 @@ import io
 import os
 import pathlib
 import shlex
+import string
 import sys
 import textwrap
 from importlib import machinery, util
@@ -42,6 +43,7 @@ def _add_target(
     workdir=None,
     dyndep=None,
     display=None,
+    **tags,
 ):
     if workdir is None:
         workdir = get_cur_src()
@@ -55,6 +57,7 @@ def _add_target(
         workdir=workdir,
         dyndep=dyndep,
         display=display,
+        tags=tags,
     )
 
     add_target_object(target)
@@ -73,6 +76,7 @@ def _make_add_target(default_workdir):
         workdir=default_workdir,
         dyndep=None,
         display=None,
+        **tags,
     ):
         return _add_target(
             command=command,
@@ -83,6 +87,7 @@ def _make_add_target(default_workdir):
             workdir=workdir,
             dyndep=dyndep,
             display=display,
+            **tags,
         )
 
     return add_target
@@ -95,7 +100,7 @@ if sys.platform == "win32":
     _findglob_bin += ".exe"
 
 
-def _add_manifest(*, command, out, workdir, after=()):
+def _add_manifest(*, command, out, workdir, after=(), **tags):
     if isinstance(command, str):
         command = shlex.split(command)
     command = [shlex.quote(c) for c in command]
@@ -106,6 +111,7 @@ def _add_manifest(*, command, out, workdir, after=()):
         workdir=workdir,
         display=f"updating manifest: {' '.join(str(c) for c in command)}",
         phony=True,
+        **tags,
     )
 
 
@@ -119,7 +125,7 @@ def _make_add_manifest(default_workdir):
     return add_manifest
 
 
-def _add_glob(*patterns, out, workdir, after=()):
+def _add_glob(*patterns, out, workdir, after=(), **tags):
     if not patterns:
         raise ValueError("at least one pattern must be provided")
     patterns = [shlex.quote(p) for p in patterns]
@@ -131,6 +137,7 @@ def _add_glob(*patterns, out, workdir, after=()):
         after=after,
         display=f"findglob {' '.join(str(p) for p in patterns)}",
         phony=True,
+        **tags,
     )
 
 
@@ -279,11 +286,38 @@ class Target:
         phony,
         workdir,
         dyndep,
-        display
+        display,
+        tags,
     ):
         assert isinstance(outputs, (list, tuple)), type(outputs)
         assert isinstance(inputs, (list, tuple)), type(inputs)
         assert isinstance(after, (list, tuple)), type(after)
+        assert all(isinstance(k, str) for k in tags), tags
+        assert all(k == k.upper() for k in tags), tags
+        tags = {k: str(v) for k, v in tags.items()}
+
+        # expand tags that reference each other, the hacky way
+        def expand_tag(s):
+            for _ in range(100):
+                old = s
+                s = string.Template(str(s)).safe_substitute(tags)
+                if old == s:
+                    return s
+            else:
+                raise ValueError(
+                    f"recursion limit exceeded while expanding tags={tags}"
+                )
+            return tags_out
+
+        expanded_tags = {k: expand_tag(v) for k, v in tags.items()}
+
+        # expanded tags are assigned as properties of a target
+        for k, v in expanded_tags.items():
+            setattr(self, k, v)
+
+        # all other strings are expanded against the expanded_tags
+        def expand(s):
+            return string.Template(str(s)).safe_substitute(expanded_tags)
 
         temp = []
         for i in inputs:
@@ -291,7 +325,7 @@ class Target:
                 temp += i.as_input()
             else:
                 temp.append(i)
-        inputs = temp
+        inputs = [expand(t) for t in temp]
 
         temp = []
         for o in outputs:
@@ -299,7 +333,7 @@ class Target:
                 temp += o.as_output()
             else:
                 temp.append(o)
-        outputs = temp
+        outputs = [expand(t) for t in temp]
 
         temp = []
         for a in after:
@@ -307,13 +341,16 @@ class Target:
                 temp += a.as_after()
             else:
                 temp.append(a)
-        after = temp
+        after = [expand(t) for t in temp]
 
         if isinstance(command, str):
             command = shlex.split(command)
+        command = [expand(c) for c in command]
 
         if hasattr(dyndep, "as_dyndep"):
             dyndep = dyndep.as_dyndep()
+        if dyndep:
+            dyndep = expand(dyndep)
 
         self.inputs = inputs
         self.after = after
@@ -323,6 +360,7 @@ class Target:
         self.phony = phony
         self.dyndep = dyndep
         self.display = display
+        self.tags = expanded_tags
 
     def as_after(self):
         return self.outputs
