@@ -294,6 +294,14 @@ class Target:
         inputs = temp
 
         temp = []
+        for o in outputs:
+            if hasattr(o, "as_output"):
+                temp += o.as_output()
+            else:
+                temp.append(o)
+        outputs = temp
+
+        temp = []
         for a in after:
             if hasattr(a, "as_after"):
                 temp += a.as_after()
