@@ -428,7 +428,7 @@ class _Project:
             print(target.gen(bld), file=f, end="\n\n")
 
         # post-process the text to use $SRC and $BLD
-        text = f.getvalue()
+        text = f.getvalue().rstrip()
         bld = str(self.bld)
         src = str(self.src)
         if bld in src:
