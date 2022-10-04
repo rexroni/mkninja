@@ -70,9 +70,11 @@ class _Loader(machinery.SourceFileLoader):
         # expose mkninja builtins
         setattr(module, "SRC", m.src)
         setattr(module, "BLD", m.bld)
-        setattr(module, "add_target", m.add_target)
-        setattr(module, "add_manifest", m.add_manifest)
-        setattr(module, "add_glob", m.add_glob)
+        setattr(module, "add_target", m.make_add_target())
+        setattr(module, "add_manifest", m.make_add_manifest())
+        setattr(module, "add_glob", m.make_add_glob())
+        setattr(module, "add_series", m.add_series)
+        setattr(module, "ALL", self.proj.ALL)
         # this one is undocumented
         setattr(module, "add_target_object", m.add_target_object)
         # setattr(module, "add_subproject", add_subproject)
@@ -150,6 +152,7 @@ class Target:
         workdir,
         dyndep,
         display,
+        series,
         **tags,
     ):
         assert isinstance(outputs, (list, tuple)), type(outputs)
@@ -215,6 +218,11 @@ class Target:
         if dyndep:
             dyndep = expand(dyndep)
 
+        series = series or []
+        if isinstance(series, Series):
+            series = [series]
+        assert all(isinstance(s, Series) for s in series), series
+
         self.inputs = inputs
         self.after = after
         self.command = command
@@ -223,6 +231,7 @@ class Target:
         self.phony = phony
         self.dyndep = dyndep
         self.display = display
+        self.series = series
         self.tags = expanded_tags
 
     def as_after(self):
@@ -275,6 +284,23 @@ class Target:
         return str(self.outputs[0])
 
 
+class Series:
+    """
+    A Series is a classification of target, which may exist in all directories
+    under some root (most commonly the root of the whole project).
+
+    The default series is "all", so `ninja all` is defined, as does
+    `ninja subdir/all` for any subdir with a corresponding `mkninja.py` file.
+    """
+    def __init__(self, name, proj, relpath):
+        self.name = name
+        self._proj = proj
+        self._relpath = relpath
+
+    def __str__(self):
+        return self.name
+
+
 class _Module:
     def __init__(self, proj, relpath):
         self.proj = proj
@@ -294,15 +320,16 @@ class _Module:
         self.proj.targets.append(target)
         return target
 
-    def add_target(
+    def _add_target(
         self,
         *,
         command,
+        workdir,
+        series,
         outputs=(),
         inputs=(),
         after=(),
         phony=False,
-        workdir=None,
         dyndep=None,
         display=None,
         **tags,
@@ -313,49 +340,105 @@ class _Module:
             inputs=inputs,
             after=after,
             phony=phony,
-            workdir=workdir or self.src,
+            workdir=workdir,
             dyndep=dyndep,
             display=display,
+            series=series,
             **tags,
         )
 
         return self.add_target_object(target)
 
-    def add_manifest(
-        self, *, command, out, after=(), workdir=None, **tags,
-    ):
-        if isinstance(command, list):
-            command = " ".join(_quote(c) for c in command)
-        return self.add_target(
-            inputs=[],
-            command=(
-                f"( {command} ) | {_quote(_manifest_bin)} {_quote(out)}"
-            ),
-            outputs=[out],
-            workdir=workdir or self.src,
-            display=f"updating manifest: {command}",
-            phony=True,
+    def make_add_target(self):
+        def add_target(
+            *,
+            command,
+            outputs=(),
+            inputs=(),
+            after=(),
+            phony=False,
+            workdir=self.src,
+            dyndep=None,
+            display=None,
+            series=self.proj.ALL,
             **tags,
-        )
+        ):
+            return self._add_target(
+                command=command,
+                outputs=outputs,
+                inputs=inputs,
+                after=after,
+                phony=phony,
+                workdir=workdir,
+                dyndep=dyndep,
+                display=display,
+                series=series,
+                **tags,
+            )
 
-    def add_glob(self, *patterns, out, workdir=None, after=(), **tags):
-        if not patterns:
-            raise ValueError("at least one pattern must be provided")
-        patterns = [_quote(str(p)) for p in patterns]
-        return self.add_target(
-            inputs=[],
-            command=(
-                f"{_quote(_findglob_bin)} "
-                f"{' '.join(patterns)} "
-                f"| {_quote(_manifest_bin)} {_quote(out)}"
-            ),
-            outputs=[out],
-            workdir=workdir or self.src,
-            after=after,
-            display=f"findglob {' '.join(patterns)}",
-            phony=True,
-            **tags,
-        )
+        return add_target
+
+    def make_add_manifest(self):
+        def add_manifest(
+            *, command, out, after=(), workdir=self.src, **tags,
+        ):
+            if isinstance(command, list):
+                command = " ".join(_quote(c) for c in command)
+            return self._add_target(
+                inputs=[],
+                command=(
+                    f"( {command} ) | {_quote(_manifest_bin)} {_quote(out)}"
+                ),
+                outputs=[out],
+                workdir=workdir,
+                display=f"updating manifest: {command}",
+                phony=True,
+                series=None,
+                **tags,
+            )
+
+        return add_manifest
+
+    def make_add_glob(self):
+        def add_glob(
+            *patterns, out, workdir=None, after=(), **tags
+        ):
+            if not patterns:
+                raise ValueError("at least one pattern must be provided")
+            patterns = [_quote(str(p)) for p in patterns]
+            return self._add_target(
+                inputs=[],
+                command=(
+                    f"{_quote(_findglob_bin)} "
+                    f"{' '.join(patterns)} "
+                    f"| {_quote(_manifest_bin)} {_quote(out)}"
+                ),
+                outputs=[out],
+                workdir=workdir or self.src,
+                after=after,
+                display=f"findglob {' '.join(patterns)}",
+                phony=True,
+                series=None,
+                **tags,
+            )
+
+        return add_glob
+
+    def add_series(self, name):
+        existing = self.proj.series.get(name)
+        if existing:
+            relmod = existing._relpath.replace("/", ".")
+            mod = f"root.{relmod}" if relmod else "root"
+            raise ValueError(
+                f"series name '{name}' is already in use (defined in {mod})"
+            )
+        series = Series(name, self.proj, self.relpath)
+        self.proj.series[name] = series
+        return series
+
+    def _get_series_outputs(self, series):
+        series_targets = [t for t in self.targets if series in t.series]
+        return [o for t in series_targets for o in t.outputs]
 
 
 class _Project:
@@ -369,6 +452,9 @@ class _Project:
         self.mkninja_files = []
         self.subprojects = []
         self.modules = {}
+        # start with default series
+        self.ALL = Series("all", self, "")
+        self.series = {"all": self.ALL}
 
     def __enter__(self):
         sys.meta_path = [self.finder] + sys.meta_path
@@ -389,6 +475,41 @@ class _Project:
             # restore our parent's aliases
             for alias, module in _aliases[-1].items():
                 sys.modules[alias] = module
+
+    def _gen_series(self, bld, f, series):
+
+        def relbld(s):
+            s = str(s)
+            if str(bld) in s:
+                s = os.path.relpath(s, str(bld))
+            return s
+
+        print(f'# "{series}"-series targets', file=f)
+        for relpath, module in sorted(self.modules.items()):
+            if not relpath.startswith(series._relpath):
+                continue
+            name = ninjify(pathlib.Path(relpath)/f"_{series}")
+            targets = [t for t in module.targets if series in t.series]
+            outputs = [o for t in targets for o in t.outputs]
+            deps = ' '.join(ninjify(relbld(o)) for o in outputs)
+            print(f"build {name}: phony {deps}", file=f)
+        print(file=f)
+
+        for relpath, module in sorted(self.modules.items()):
+            if not relpath.startswith(series._relpath):
+                continue
+            if series.name == "all":
+                # the "all" series has the special property that each
+                # directory's target is just the name of that directory
+                name = ninjify(relpath or "all")
+            else:
+                name = ninjify(pathlib.Path(relpath)/series.name)
+            children = [r for r in self.modules if r.startswith(relpath)]
+            alltgts = [pathlib.Path(c)/f"_{series}" for c in children]
+            alldeps = ' '.join(ninjify(relbld(a)) for a in alltgts)
+            print(f"build {name}: phony {alldeps}", file=f)
+        print(file=f)
+
 
     def gen(self, bld, rerun_script=None, isroot=True):
         f = io.StringIO()
@@ -426,6 +547,11 @@ class _Project:
 
         for target in self.targets:
             print(target.gen(bld), file=f, end="\n\n")
+
+        for name, series in sorted(self.series.items()):
+            self._gen_series(bld, f, series)
+
+        print(f"default all", file=f)
 
         # post-process the text to use $SRC and $BLD
         text = f.getvalue().rstrip()
