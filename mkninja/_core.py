@@ -7,6 +7,9 @@ import sys
 import textwrap
 from importlib import machinery, util
 
+def _quote(s):
+    return shlex.quote(str(s))
+
 _aliases = []
 _proj = []
 _src = []
@@ -35,7 +38,7 @@ def add_target_object(target):
 
 def _add_target(
     *,
-    command=(),
+    command="",
     outputs=(),
     inputs=(),
     after=(),
@@ -101,15 +104,16 @@ if sys.platform == "win32":
 
 
 def _add_manifest(*, command, out, workdir, after=(), **tags):
-    if isinstance(command, str):
-        command = shlex.split(command)
-    command = [shlex.quote(c) for c in command]
+    if isinstance(command, list):
+        command = " ".join(_quote(c) for c in command)
     return _add_target(
         inputs=[],
-        command=["(", *command, ")", "|", _manifest_bin, out],
+        command=(
+            f"( {command} ) | {_quote(_manifest_bin)} {_quote(out)}"
+        ),
         outputs=[out],
         workdir=workdir,
-        display=f"updating manifest: {' '.join(str(c) for c in command)}",
+        display=f"updating manifest: {command}",
         phony=True,
         **tags,
     )
@@ -128,14 +132,18 @@ def _make_add_manifest(default_workdir):
 def _add_glob(*patterns, out, workdir, after=(), **tags):
     if not patterns:
         raise ValueError("at least one pattern must be provided")
-    patterns = [shlex.quote(str(p)) for p in patterns]
+    patterns = [_quote(str(p)) for p in patterns]
     return _add_target(
         inputs=[],
-        command=[_findglob_bin, *patterns, "|", _manifest_bin, out],
+        command=(
+            f"{_quote(_findglob_bin)} "
+            f"{' '.join(patterns)} "
+            f"| {_quote(_manifest_bin)} {_quote(out)}"
+        ),
         outputs=[out],
         workdir=workdir,
         after=after,
-        display=f"findglob {' '.join(str(p) for p in patterns)}",
+        display=f"findglob {' '.join(patterns)}",
         phony=True,
         **tags,
     )
@@ -265,12 +273,12 @@ class _Finder:
         )
 
 
-def ninjify(s):
+def ninjify(s, allow_space=False):
     """apply ninja syntax escapes"""
     s = str(s)
     s = s.replace("$", "$$")
-    s = s.replace("\n", "$\n")
-    s = s.replace(" ", "$ ")
+    if not allow_space:
+        s = s.replace(" ", "$ ")
     s = s.replace(":", "$:")
     return s
 
@@ -343,9 +351,9 @@ class Target:
                 temp.append(a)
         after = [expand(t) for t in temp]
 
-        if isinstance(command, str):
-            command = shlex.split(command)
-        command = [expand(c) for c in command]
+        if isinstance(command, list):
+            command = " ".join(_quote(c) for c in command)
+        command = expand(command)
 
         if hasattr(dyndep, "as_dyndep"):
             dyndep = dyndep.as_dyndep()
@@ -396,12 +404,12 @@ class Target:
             out += ' ' + ' '.join(ninjify(relbld(a)) for a in self.after)
         # if self.dyndep:
         #     out += " " + ninjify(self.dyndep)
-        out += "\n CMD = " + " ".join(ninjify(c) for c in self.command)
-        out += "\n WORKDIR = " + ninjify(self.workdir)
+        out += "\n CMD = " + ninjify(self.command, allow_space=True)
+        out += "\n WORKDIR = " + ninjify(self.workdir, allow_space=True)
         if self.dyndep:
-            out += "\n dyndep = " + ninjify(relbld(self.dyndep))
+            out += "\n dyndep = " + ninjify(relbld(self.dyndep), True)
         if self.display:
-            out += "\n DISPLAY = " + ninjify(relbld(self.display))
+            out += "\n DISPLAY = " + ninjify(relbld(self.display), True)
         return out
 
     def __str__(self):
