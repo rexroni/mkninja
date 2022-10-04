@@ -7,93 +7,11 @@ import sys
 import textwrap
 from importlib import machinery, util
 
+_aliases = []
+
+
 def _quote(s):
     return shlex.quote(str(s))
-
-_aliases = []
-_proj = []
-_src = []
-_bld = []
-
-# on reflection, I think these are a bad idea.
-# They only work during import, so if you have a
-# function that calls add_target() then it will
-# misbehave when called from another file.
-# def get_cur_src():
-#     return _src[-1]
-#
-# def get_cur_bld():
-#     return _bld[-1]
-
-
-def add_target_object(target):
-    """
-    If you subclass the Target object, you could use mkninja.add_target_object
-    to include it into the ninja file.
-    """
-    proj = _proj[-1]
-    proj.targets.append(target)
-    return target
-
-
-def _add_target(
-    *,
-    command="",
-    outputs=(),
-    inputs=(),
-    after=(),
-    phony=False,
-    workdir=None,
-    dyndep=None,
-    display=None,
-    **tags,
-):
-    if workdir is None:
-        workdir = get_cur_src()
-
-    target = Target(
-        command=command,
-        outputs=outputs,
-        inputs=inputs,
-        after=after,
-        phony=phony,
-        workdir=workdir,
-        dyndep=dyndep,
-        display=display,
-        tags=tags,
-    )
-
-    add_target_object(target)
-    return target
-
-
-def _make_add_target(default_workdir):
-
-    def add_target(
-        *,
-        command,
-        outputs=(),
-        inputs=(),
-        after=(),
-        phony=False,
-        workdir=default_workdir,
-        dyndep=None,
-        display=None,
-        **tags,
-    ):
-        return _add_target(
-            command=command,
-            outputs=outputs,
-            inputs=inputs,
-            after=after,
-            phony=phony,
-            workdir=workdir,
-            dyndep=dyndep,
-            display=display,
-            **tags,
-        )
-
-    return add_target
 
 
 _manifest_bin = os.path.join(os.path.dirname(__file__), "manifest")
@@ -101,60 +19,6 @@ _findglob_bin = os.path.join(os.path.dirname(__file__), "findglob")
 if sys.platform == "win32":
     _manifest_bin += ".exe"
     _findglob_bin += ".exe"
-
-
-def _add_manifest(*, command, out, workdir, after=(), **tags):
-    if isinstance(command, list):
-        command = " ".join(_quote(c) for c in command)
-    return _add_target(
-        inputs=[],
-        command=(
-            f"( {command} ) | {_quote(_manifest_bin)} {_quote(out)}"
-        ),
-        outputs=[out],
-        workdir=workdir,
-        display=f"updating manifest: {command}",
-        phony=True,
-        **tags,
-    )
-
-
-def _make_add_manifest(default_workdir):
-
-    def add_manifest(*, command, out, after=(), workdir=default_workdir):
-        return _add_manifest(
-            command=command, out=out, after=after, workdir=workdir
-        )
-
-    return add_manifest
-
-
-def _add_glob(*patterns, out, workdir, after=(), **tags):
-    if not patterns:
-        raise ValueError("at least one pattern must be provided")
-    patterns = [_quote(str(p)) for p in patterns]
-    return _add_target(
-        inputs=[],
-        command=(
-            f"{_quote(_findglob_bin)} "
-            f"{' '.join(patterns)} "
-            f"| {_quote(_manifest_bin)} {_quote(out)}"
-        ),
-        outputs=[out],
-        workdir=workdir,
-        after=after,
-        display=f"findglob {' '.join(patterns)}",
-        phony=True,
-        **tags,
-    )
-
-
-def _make_add_glob(default_workdir):
-
-    def add_glob(*patterns, out, after=(), workdir=default_workdir):
-        return _add_glob(*patterns, out=out, after=after, workdir=workdir)
-
-    return add_glob
 
 
 ## add_subproject needs more support from ninja itself before it is a good
@@ -202,25 +66,17 @@ class _Loader(machinery.SourceFileLoader):
             sys.modules[self.alias] = module
             _aliases[-1][self.alias] = module
         relpath = "/".join(module.__name__.split(".")[1:])
-        # set SRC
-        src = self.proj.src/relpath
-        setattr(module, "SRC", src)
-        # set BLD
-        bld = self.proj.bld/relpath
-        setattr(module, "BLD", bld)
+        m = _Module(self.proj, relpath)
         # expose mkninja builtins
-        setattr(module, "add_target", _make_add_target(src))
-        setattr(module, "add_manifest", _make_add_manifest(src))
-        setattr(module, "add_glob", _make_add_glob(src))
+        setattr(module, "SRC", m.src)
+        setattr(module, "BLD", m.bld)
+        setattr(module, "add_target", m.add_target)
+        setattr(module, "add_manifest", m.add_manifest)
+        setattr(module, "add_glob", m.add_glob)
+        # this one is undocumented
+        setattr(module, "add_target_object", m.add_target_object)
         # setattr(module, "add_subproject", add_subproject)
-        try:
-            # while executing this module, the default workdir should be src
-            _bld.append(bld)
-            _src.append(src)
-            return super().exec_module(module)
-        finally:
-            _bld.pop()
-            _src.pop()
+        return super().exec_module(module)
 
     def set_data(self, *args, **kwarg):
         # We don't want to generate annoying __pycache__ directories in the
@@ -253,7 +109,6 @@ class _Finder:
             alias = ".".join([self.proj.alias] + subs)
         else:
             alias = None
-
 
         # We want normal source-loading mechanics, with these exceptions:
         #  - we want to load the wrong source (fullname != path)
@@ -295,7 +150,7 @@ class Target:
         workdir,
         dyndep,
         display,
-        tags,
+        **tags,
     ):
         assert isinstance(outputs, (list, tuple)), type(outputs)
         assert isinstance(inputs, (list, tuple)), type(inputs)
@@ -420,6 +275,89 @@ class Target:
         return str(self.outputs[0])
 
 
+class _Module:
+    def __init__(self, proj, relpath):
+        self.proj = proj
+        self.relpath = relpath
+        self.src = proj.src/relpath
+        self.bld = proj.bld/relpath
+        self.targets = []
+
+        proj.modules[relpath] = self
+
+    def add_target_object(self, target):
+        """
+        If you subclass the Target object, you could use add_target_object
+        to include it into the ninja file.
+        """
+        self.targets.append(target)
+        self.proj.targets.append(target)
+        return target
+
+    def add_target(
+        self,
+        *,
+        command,
+        outputs=(),
+        inputs=(),
+        after=(),
+        phony=False,
+        workdir=None,
+        dyndep=None,
+        display=None,
+        **tags,
+    ):
+        target = Target(
+            command=command,
+            outputs=outputs,
+            inputs=inputs,
+            after=after,
+            phony=phony,
+            workdir=workdir or self.src,
+            dyndep=dyndep,
+            display=display,
+            **tags,
+        )
+
+        return self.add_target_object(target)
+
+    def add_manifest(
+        self, *, command, out, after=(), workdir=None, **tags,
+    ):
+        if isinstance(command, list):
+            command = " ".join(_quote(c) for c in command)
+        return self.add_target(
+            inputs=[],
+            command=(
+                f"( {command} ) | {_quote(_manifest_bin)} {_quote(out)}"
+            ),
+            outputs=[out],
+            workdir=workdir or self.src,
+            display=f"updating manifest: {command}",
+            phony=True,
+            **tags,
+        )
+
+    def add_glob(self, *patterns, out, workdir=None, after=(), **tags):
+        if not patterns:
+            raise ValueError("at least one pattern must be provided")
+        patterns = [_quote(str(p)) for p in patterns]
+        return self.add_target(
+            inputs=[],
+            command=(
+                f"{_quote(_findglob_bin)} "
+                f"{' '.join(patterns)} "
+                f"| {_quote(_manifest_bin)} {_quote(out)}"
+            ),
+            outputs=[out],
+            workdir=workdir or self.src,
+            after=after,
+            display=f"findglob {' '.join(patterns)}",
+            phony=True,
+            **tags,
+        )
+
+
 class _Project:
     def __init__(self, src, bld, truename, alias=None):
         self.src = pathlib.Path(src).absolute()
@@ -430,10 +368,10 @@ class _Project:
         self.targets = []
         self.mkninja_files = []
         self.subprojects = []
+        self.modules = {}
 
     def __enter__(self):
         sys.meta_path = [self.finder] + sys.meta_path
-        _proj.append(self)
         # remove the current set of aliases
         if _aliases:
             for alias in _aliases[-1]:
@@ -443,7 +381,6 @@ class _Project:
 
     def __exit__(self, *_):
         sys.meta_path.remove(self.finder)
-        _proj.pop()
         # remove any aliases we created
         for alias in _aliases[-1]:
             sys.modules.pop(alias)
