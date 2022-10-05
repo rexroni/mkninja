@@ -425,6 +425,8 @@ class _Module:
         return add_glob
 
     def add_series(self, name):
+        if name in ["clean", "all"]:
+            raise ValueError(f"series name '{name}' is reserved")
         existing = self.proj.series.get(name)
         if existing:
             relmod = existing._relpath.replace("/", ".")
@@ -510,6 +512,33 @@ class _Project:
             print(f"build {name}: phony {alldeps}", file=f)
         print(file=f)
 
+    def _gen_clean(self, bld, f):
+        """Sort of like _gen_series() but obnoxiously different."""
+
+        def relbld(s):
+            s = str(s)
+            if str(bld) in s:
+                s = os.path.relpath(s, str(bld))
+            return s
+
+        print(f'# "clean"-series targets', file=f)
+        for relpath, module in sorted(self.modules.items()):
+            name = ninjify(pathlib.Path(relpath)/"_clean")
+            outputs = [o for t in module.targets for o in t.outputs]
+            args = ' '.join(ninjify(relbld(o)) for o in outputs)
+            print(f"build {name}: TARGET | PHONY ||", file=f)
+            print(f" CMD = rm -rf {args}", file=f)
+            print(" WORKDIR = .", file=f)
+            print(f" DISPLAY = cleaning {relpath or 'root'}", file=f)
+        print(file=f)
+
+        for relpath, module in sorted(self.modules.items()):
+            name = ninjify(pathlib.Path(relpath)/"clean")
+            children = [r for r in self.modules if r.startswith(relpath)]
+            alltgts = [pathlib.Path(c)/f"_clean" for c in children]
+            alldeps = ' '.join(ninjify(relbld(a)) for a in alltgts)
+            print(f"build {name}: phony {alldeps}", file=f)
+        print(file=f)
 
     def gen(self, bld, rerun_script=None, isroot=True):
         f = io.StringIO()
@@ -550,6 +579,8 @@ class _Project:
 
         for name, series in sorted(self.series.items()):
             self._gen_series(bld, f, series)
+
+        self._gen_clean(bld, f)
 
         print(f"default all", file=f)
 
