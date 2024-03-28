@@ -100,13 +100,32 @@ keyword-only arguments:
   - `workdir`: a directory to `cd` into before launching the `command`,
     defaults to `SRC`.
   - `display`: a string of text to display while this step is running.
+  - `default`: a bool to indicate if this target should be run by default
+    (defaults to `True`).
   - `dyndep`: a file or target (which must also be in `inputs`) that ninja
     should treat as a dynamic dependency file.  See ninja docs for details.
+  - `stamp`: if True, the first provided `output` will be created or modified
+    with `touch` (or windows equivalent) after `command` runs successfully.
 
-`add_target()` returns a `mkninja.Target` object which has attrubutes
+`add_target()` returns a `mkninja.Target` object which has attributes
 `inputs`, `outputs`, and `after` which may be useful to read (but which
 probably shouldn't be modified).  Additionally, the `mkninja.Target` object
 may be passed into `inputs` or `after` directly.
+
+
+### `add_alias()`
+
+`add_alias()` adds a new target that is an alias for one or more other targets.
+It can be used to expose one target in a more convenient namespace, or to group
+multiple targets under a single umbrella.  `add_target()` has the following
+arguments:
+
+  - `name`: the name of the alias target to create.
+  - `inputs`: a list of input files or `mkninja.Target` objects.
+  - `default` (keyword-only): a bool to indicate if this target should be run
+    by default (defaults to `True`).
+
+`add_alias()` returns a `mkninja.Target` object.
 
 ### `add_manifest()`
 

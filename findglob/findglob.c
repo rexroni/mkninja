@@ -13,7 +13,7 @@
     #include <windows.h>
 #endif
 
-#define VERSION "0.1.3"
+#define VERSION "0.2.0"
 
 // F(string) matches a "%.*s" in a format string
 #define F(string) (int)(string).len, (string).text
@@ -244,7 +244,7 @@ bool string_contains(const string_t s, const string_t tgt){
 }
 
 // code copied from splintermail project, then modified
-// (https://sr.ht/~splintermail-dev/splintermail-client)
+// (https://github.com/splintermail/splintermail-client)
 // original code was public domain under the UNLICENSE
 
 static const string_t DOT = { .text = ".", .len = 1 };
@@ -706,7 +706,7 @@ int section_parse(section_t *sect, string_t s){
 
     // anything else: run the full glob matching logic
     bool *litout = malloc(len);
-    if(!out){
+    if(!litout){
         fprintf(stderr, "out of memory\n");
         exit(1);
     }

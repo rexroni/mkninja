@@ -5,7 +5,9 @@ mkninja.egg-info
 findglob/findglob
 findglob/test
 manifest/manifest
+stamp/stamp
 
 mkninja/findglob
 mkninja/manifest
+mkninja/stamp
 __pycache__

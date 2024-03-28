@@ -30,6 +30,7 @@ import distutils.command.build_ext
 ext_modules = [
     distutils.extension.Extension("mkninja.findglob", ["findglob/main.c"]),
     distutils.extension.Extension("mkninja.manifest", ["manifest/manifest.c"]),
+    distutils.extension.Extension("mkninja.stamp", ["stamp/stamp.c"]),
 ]
 
 class build_exe(distutils.command.build_ext.build_ext):
