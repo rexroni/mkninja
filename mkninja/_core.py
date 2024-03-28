@@ -53,6 +53,7 @@ class _Loader(machinery.SourceFileLoader):
       - SRC: the current source file
       - BLD: the current build file
       - add_target(): adds a build target into the generated ninja file
+      - add_alias(): adds an alias target into the generated ninja file
       - add_manifest(): adds a target to build a manifest file
       - add_glob(): adds a target that writes a manifest by calling findglob
     """
@@ -73,10 +74,9 @@ class _Loader(machinery.SourceFileLoader):
         setattr(module, "SRC", m.src)
         setattr(module, "BLD", m.bld)
         setattr(module, "add_target", m.make_add_target())
+        setattr(module, "add_alias", m.make_add_alias())
         setattr(module, "add_manifest", m.make_add_manifest())
         setattr(module, "add_glob", m.make_add_glob())
-        setattr(module, "add_series", m.add_series)
-        setattr(module, "ALL", self.proj.ALL)
         # this one is undocumented
         setattr(module, "add_target_object", m.add_target_object)
         # setattr(module, "add_subproject", add_subproject)
@@ -154,12 +154,19 @@ class Target:
         workdir,
         dyndep,
         display,
-        series,
+        default,
+        stamp,
         **tags,
     ):
         assert isinstance(outputs, (list, tuple)), type(outputs)
         assert isinstance(inputs, (list, tuple)), type(inputs)
         assert isinstance(after, (list, tuple)), type(after)
+        assert isinstance(default, bool), type(default)
+        assert isinstance(stamp, bool), type(stamp)
+        if stamp and not outputs:
+            raise ValueError(
+                "a Target with stamp=True must have at least one output"
+            )
         assert all(isinstance(k, str) for k in tags), tags
         assert all(k == k.upper() for k in tags), tags
         tags = {k: str(v) for k, v in tags.items()}
@@ -220,11 +227,6 @@ class Target:
         if dyndep:
             dyndep = expand(dyndep)
 
-        series = series or []
-        if isinstance(series, Series):
-            series = [series]
-        assert all(isinstance(s, Series) for s in series), series
-
         self.inputs = inputs
         self.after = after
         self.command = command
@@ -233,7 +235,8 @@ class Target:
         self.phony = phony
         self.dyndep = dyndep
         self.display = display
-        self.series = series
+        self.default = default
+        self.stamp = stamp
         self.tags = expanded_tags
 
     def as_after(self):
@@ -260,7 +263,10 @@ class Target:
         out = f"build"
         if self.outputs:
             out += ' ' + ' '.join(ninjify(relbld(o)) for o in self.outputs)
-        out += ": TARGET |"
+        if self.stamp:
+            out += ": STAMPTARGET |"
+        else:
+            out += ": TARGET |"
         if self.inputs:
             out += ' ' + ' '.join(ninjify(relbld(i)) for i in self.inputs)
         if self.phony:
@@ -275,7 +281,9 @@ class Target:
         if self.dyndep:
             out += "\n dyndep = " + ninjify(relbld(self.dyndep), True)
         if self.display:
-            out += "\n DISPLAY = " + ninjify(relbld(self.display), True)
+            out += "\n DISPLAY = " + ninjify(self.display, True)
+        if self.stamp:
+            out += "\n STAMP = " + ninjify(self.outputs[0], True)
         return out
 
     def __str__(self):
@@ -286,21 +294,50 @@ class Target:
         return str(self.outputs[0])
 
 
-class Series:
-    """
-    A Series is a classification of target, which may exist in all directories
-    under some root (most commonly the root of the whole project).
+class Alias(Target):
+    def __init__(self, *, name, inputs, default):
+        assert isinstance(name, (str, pathlib.Path)), type(name)
+        assert isinstance(inputs, (list, tuple)), type(inputs)
+        assert isinstance(default, bool), type(default)
+        assert inputs, "Alias targets require at least one input"
 
-    The default series is "all", so `ninja all` is defined, as does
-    `ninja subdir/all` for any subdir with a corresponding `mkninja.py` file.
-    """
-    def __init__(self, name, proj, relpath):
         self.name = name
-        self._proj = proj
-        self._relpath = relpath
+
+        self.inputs = []
+        for i in inputs:
+            if hasattr(i, "as_input"):
+                self.inputs += i.as_input()
+            else:
+                self.inputs.append(i)
+
+        self.default = default
+
+        # be API-compatible with documented attributes of Target
+        self.outputs = [self.name]
+        self.after = []
+
+    def as_after(self):
+        return self.outputs
+
+    def as_input(self):
+        return self.outputs
+
+    def as_dyndep(self):
+        raise ValueError("passing an Alias as a dyndep is not allowed")
+
+    def gen(self, bld):
+        def relbld(s):
+            s = str(s)
+            if str(bld) in s:
+                s = os.path.relpath(s, str(bld))
+            return s
+
+        out = f"build {self.name}: phony "
+        out += ' '.join(ninjify(relbld(i)) for i in self.inputs)
+        return out
 
     def __str__(self):
-        return self.name
+        return str(self.name)
 
 
 class _Module:
@@ -327,13 +364,14 @@ class _Module:
         *,
         command,
         workdir,
-        series,
         outputs=(),
         inputs=(),
         after=(),
         phony=False,
         dyndep=None,
         display=None,
+        default=True,
+        stamp=False,
         **tags,
     ):
         target = Target(
@@ -345,7 +383,8 @@ class _Module:
             workdir=workdir,
             dyndep=dyndep,
             display=display,
-            series=series,
+            default=default,
+            stamp=stamp,
             **tags,
         )
 
@@ -362,7 +401,8 @@ class _Module:
             workdir=self.src,
             dyndep=None,
             display=None,
-            series=self.proj.ALL,
+            default=True,
+            stamp=False,
             **tags,
         ):
             return self._add_target(
@@ -374,11 +414,19 @@ class _Module:
                 workdir=workdir,
                 dyndep=dyndep,
                 display=display,
-                series=series,
+                default=default,
+                stamp=stamp,
                 **tags,
             )
 
         return add_target
+
+    def make_add_alias(self):
+        def add_alias(name, inputs, *, default=False):
+            alias = Alias(name=name, inputs=inputs, default=default)
+            return self.add_target_object(alias)
+
+        return add_alias
 
     def make_add_manifest(self):
         def add_manifest(
@@ -395,7 +443,7 @@ class _Module:
                 workdir=workdir,
                 display=f"updating manifest: {command}",
                 phony=True,
-                series=None,
+                default=False,
                 **tags,
             )
 
@@ -420,29 +468,11 @@ class _Module:
                 after=after,
                 display=f"findglob {' '.join(patterns)}",
                 phony=True,
-                series=None,
+                default=False,
                 **tags,
             )
 
         return add_glob
-
-    def add_series(self, name):
-        if name in ["clean", "all"]:
-            raise ValueError(f"series name '{name}' is reserved")
-        existing = self.proj.series.get(name)
-        if existing:
-            relmod = existing._relpath.replace("/", ".")
-            mod = f"root.{relmod}" if relmod else "root"
-            raise ValueError(
-                f"series name '{name}' is already in use (defined in {mod})"
-            )
-        series = Series(name, self.proj, self.relpath)
-        self.proj.series[name] = series
-        return series
-
-    def _get_series_outputs(self, series):
-        series_targets = [t for t in self.targets if series in t.series]
-        return [o for t in series_targets for o in t.outputs]
 
 
 class _Project:
@@ -456,9 +486,6 @@ class _Project:
         self.mkninja_files = []
         self.subprojects = []
         self.modules = {}
-        # start with default series
-        self.ALL = Series("all", self, "")
-        self.series = {"all": self.ALL}
 
     def __enter__(self):
         sys.meta_path = [self.finder] + sys.meta_path
@@ -480,64 +507,26 @@ class _Project:
             for alias, module in _aliases[-1].items():
                 sys.modules[alias] = module
 
-    def _gen_series(self, bld, f, series):
-
+    def _gen_all_series(self, bld, f):
         def relbld(s):
             s = str(s)
             if str(bld) in s:
                 s = os.path.relpath(s, str(bld))
             return s
 
-        print(f'# "{series}"-series targets', file=f)
+        print(f'# all-series targets', file=f)
         for relpath, module in sorted(self.modules.items()):
-            if not relpath.startswith(series._relpath):
-                continue
-            name = ninjify(pathlib.Path(relpath)/f"_{series}")
-            targets = [t for t in module.targets if series in t.series]
+            name = ninjify(pathlib.Path(relpath)/"_all")
+            targets = [t for t in module.targets if t.default]
             outputs = [o for t in targets for o in t.outputs]
             deps = ' '.join(ninjify(relbld(o)) for o in outputs)
             print(f"build {name}: phony {deps}", file=f)
         print(file=f)
 
         for relpath, module in sorted(self.modules.items()):
-            if not relpath.startswith(series._relpath):
-                continue
-            if series.name == "all":
-                # the "all" series has the special property that each
-                # directory's target is just the name of that directory
-                name = ninjify(relpath or "all")
-            else:
-                name = ninjify(pathlib.Path(relpath)/series.name)
+            name = ninjify(relpath or "all")
             children = [r for r in self.modules if r.startswith(relpath)]
-            alltgts = [pathlib.Path(c)/f"_{series}" for c in children]
-            alldeps = ' '.join(ninjify(relbld(a)) for a in alltgts)
-            print(f"build {name}: phony {alldeps}", file=f)
-        print(file=f)
-
-    def _gen_clean(self, bld, f):
-        """Sort of like _gen_series() but obnoxiously different."""
-
-        def relbld(s):
-            s = str(s)
-            if str(bld) in s:
-                s = os.path.relpath(s, str(bld))
-            return s
-
-        print(f'# "clean"-series targets', file=f)
-        for relpath, module in sorted(self.modules.items()):
-            name = ninjify(pathlib.Path(relpath)/"_clean")
-            outputs = [o for t in module.targets for o in t.outputs]
-            args = ' '.join(ninjify(relbld(o)) for o in outputs)
-            print(f"build {name}: TARGET | PHONY ||", file=f)
-            print(f" CMD = rm -rf {args}", file=f)
-            print(" WORKDIR = .", file=f)
-            print(f" DISPLAY = cleaning {relpath or 'root'}", file=f)
-        print(file=f)
-
-        for relpath, module in sorted(self.modules.items()):
-            name = ninjify(pathlib.Path(relpath)/"clean")
-            children = [r for r in self.modules if r.startswith(relpath)]
-            alltgts = [pathlib.Path(c)/f"_clean" for c in children]
+            alltgts = [pathlib.Path(c)/"_all" for c in children]
             alldeps = ' '.join(ninjify(relbld(a)) for a in alltgts)
             print(f"build {name}: phony {alldeps}", file=f)
         print(file=f)
@@ -553,6 +542,13 @@ class _Project:
         print(textwrap.dedent("""
             rule TARGET
              command = cd $WORKDIR && $CMD
+             description = $DISPLAY
+             restat = 1
+        """).lstrip(), file=f)
+
+        print(textwrap.dedent(f"""
+            rule STAMPTARGET
+             command = cd $WORKDIR && $CMD && {_quote(_stamp_bin)} $STAMP
              description = $DISPLAY
              restat = 1
         """).lstrip(), file=f)
@@ -579,10 +575,7 @@ class _Project:
         for target in self.targets:
             print(target.gen(bld), file=f, end="\n\n")
 
-        for name, series in sorted(self.series.items()):
-            self._gen_series(bld, f, series)
-
-        self._gen_clean(bld, f)
+        self._gen_all_series(bld, f)
 
         print(f"default all", file=f)
 
