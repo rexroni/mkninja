@@ -244,7 +244,7 @@ bool string_contains(const string_t s, const string_t tgt){
 }
 
 // code copied from splintermail project, then modified
-// (https://sr.ht/~splintermail-dev/splintermail-client)
+// (https://github.com/splintermail/splintermail-client)
 // original code was public domain under the UNLICENSE
 
 static const string_t DOT = { .text = ".", .len = 1 };

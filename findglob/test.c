@@ -12,7 +12,7 @@
 #pragma warning(pop)
 
 // copied from splintermail project, then modified
-// (https://sr.ht/~splintermail-dev/splintermail-client)
+// (https://github.com/splintermail/splintermail-client)
 // original code was public domain under the UNLICENSE
 int open(const char* pathname, int flags, ...){
     // https://docs.microsoft.com/en-us/cpp/c-runtime-library/reference/sopen-s-wsopen-s

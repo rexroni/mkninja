@@ -16,9 +16,11 @@ def _quote(s):
 
 _manifest_bin = os.path.join(os.path.dirname(__file__), "manifest")
 _findglob_bin = os.path.join(os.path.dirname(__file__), "findglob")
+_stamp_bin = os.path.join(os.path.dirname(__file__), "stamp")
 if sys.platform == "win32":
     _manifest_bin += ".exe"
     _findglob_bin += ".exe"
+    _stamp_bin += ".exe"
 
 
 ## add_subproject needs more support from ninja itself before it is a good

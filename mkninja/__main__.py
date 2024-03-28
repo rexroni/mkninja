@@ -17,6 +17,9 @@ def main():
     if len(sys.argv) > 1 and sys.argv[1] == "--manifest":
         manifest = HERE / "manifest"
         return subprocess.Popen([str(manifest), *sys.argv[2:]]).wait()
+    if len(sys.argv) > 1 and sys.argv[1] == "--stamp":
+        manifest = HERE / "stamp"
+        return subprocess.Popen([str(stamp), *sys.argv[2:]]).wait()
 
     parser = argparse.ArgumentParser("mkninja")
     parser.add_argument("src")
