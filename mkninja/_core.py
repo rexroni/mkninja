@@ -332,7 +332,7 @@ class Alias(Target):
                 s = os.path.relpath(s, str(bld))
             return s
 
-        out = f"build {self.name}: phony "
+        out = f"build {ninjify(relbld(self.name))}: phony "
         out += ' '.join(ninjify(relbld(i)) for i in self.inputs)
         return out
 
