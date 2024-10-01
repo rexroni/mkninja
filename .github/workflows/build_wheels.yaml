@@ -49,7 +49,7 @@ jobs:
             arch: "AMD64"
           - os: windows-2019
             arch: "x86"
-          - os: macos-11
+          - os: macos-12
             arch: "universal2"
 
     steps:
@@ -91,7 +91,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python: ["3.8", "3.13-dev"]
+        python: ["3.9", "3.13-dev"]
 
     steps:
       - uses: actions/checkout@v4

@@ -152,10 +152,13 @@ class Target:
         after,
         phony,
         workdir,
-        dyndep,
         display,
         default,
         stamp,
+        depfile,
+        deps,
+        msvc_deps_prefix,
+        dyndep,
         **tags,
     ):
         assert isinstance(outputs, (list, tuple)), type(outputs)
@@ -167,6 +170,8 @@ class Target:
             raise ValueError(
                 "a Target with stamp=True must have at least one output"
             )
+        if deps not in [None, "gcc", "msvc"]:
+            raise ValueError("deps must be 'gcc' or 'msvc'; see ninja docs")
         assert all(isinstance(k, str) for k in tags), tags
         assert all(k == k.upper() for k in tags), tags
         tags = {k: str(v) for k, v in tags.items()}
@@ -222,6 +227,9 @@ class Target:
             command = " ".join(_quote(c) for c in command)
         command = expand(command)
 
+        if depfile:
+            depfile = expand(depfile)
+
         if hasattr(dyndep, "as_dyndep"):
             dyndep = dyndep.as_dyndep()
         if dyndep:
@@ -233,10 +241,13 @@ class Target:
         self.outputs = outputs
         self.workdir = workdir
         self.phony = phony
-        self.dyndep = dyndep
         self.display = display
         self.default = default
         self.stamp = stamp
+        self.depfile = depfile
+        self.deps = deps
+        self.msvc_deps_prefix = msvc_deps_prefix
+        self.dyndep = dyndep
         self.tags = expanded_tags
 
     def as_after(self):
@@ -274,16 +285,20 @@ class Target:
         out += " ||"
         if self.after:
             out += ' ' + ' '.join(ninjify(relbld(a)) for a in self.after)
-        # if self.dyndep:
-        #     out += " " + ninjify(self.dyndep)
         out += "\n CMD = " + ninjify(self.command, allow_space=True)
         out += "\n WORKDIR = " + ninjify(self.workdir, allow_space=True)
-        if self.dyndep:
-            out += "\n dyndep = " + ninjify(relbld(self.dyndep), True)
         if self.display:
             out += "\n DISPLAY = " + ninjify(self.display, True)
         if self.stamp:
             out += "\n STAMP = " + ninjify(self.outputs[0], True)
+        if self.depfile:
+            out += "\n depfile = " + ninjify(relbld(self.depfile), True)
+        if self.deps:
+            out += "\n deps = " + self.deps
+        if self.msvc_deps_prefix:
+            out += "\n msvc_deps_prefix = " + self.msvc_deps_prefix
+        if self.dyndep:
+            out += "\n dyndep = " + ninjify(relbld(self.dyndep), True)
         return out
 
     def __str__(self):
@@ -368,10 +383,13 @@ class _Module:
         inputs=(),
         after=(),
         phony=False,
-        dyndep=None,
         display=None,
         default=True,
         stamp=False,
+        depfile=None,
+        deps=None,
+        msvc_deps_prefix=None,
+        dyndep=None,
         **tags,
     ):
         target = Target(
@@ -381,10 +399,13 @@ class _Module:
             after=after,
             phony=phony,
             workdir=workdir,
-            dyndep=dyndep,
             display=display,
             default=default,
             stamp=stamp,
+            depfile=depfile,
+            deps=deps,
+            msvc_deps_prefix=msvc_deps_prefix,
+            dyndep=dyndep,
             **tags,
         )
 
@@ -399,10 +420,13 @@ class _Module:
             after=(),
             phony=False,
             workdir=self.src,
-            dyndep=None,
             display=None,
             default=True,
             stamp=False,
+            depfile=None,
+            deps=None,
+            msvc_deps_prefix=None,
+            dyndep=None,
             **tags,
         ):
             return self._add_target(
@@ -412,10 +436,13 @@ class _Module:
                 after=after,
                 phony=phony,
                 workdir=workdir,
-                dyndep=dyndep,
                 display=display,
                 default=default,
                 stamp=stamp,
+                depfile=depfile,
+                deps=deps,
+                msvc_deps_prefix=msvc_deps_prefix,
+                dyndep=dyndep,
                 **tags,
             )
 

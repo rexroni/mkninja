@@ -6,7 +6,7 @@
 #include <stdlib.h>
 #include <errno.h>
 
-#define VERSION "0.2.1"
+#define VERSION "0.2.2"
 
 #ifdef _WIN32 // WINDOWS
 #include <windows.h>

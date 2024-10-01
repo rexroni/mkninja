@@ -102,10 +102,16 @@ keyword-only arguments:
   - `display`: a string of text to display while this step is running.
   - `default`: a bool to indicate if this target should be run by default
     (defaults to `True`).
-  - `dyndep`: a file or target (which must also be in `inputs`) that ninja
-    should treat as a dynamic dependency file.  See ninja docs for details.
   - `stamp`: if True, the first provided `output` will be created or modified
     with `touch` (or windows equivalent) after `command` runs successfully.
+  - `depfile`: path to an optional makefile that contains header dependency
+    information.  See ninja docs for details.
+  - `deps`: must be either `gcc` or `msvc` to trigger ninja's optimized header
+    file processing.  See ninja docs for details.
+  - `msvc_deps_prefix`: for when `deps = msvc` and you are using a non-English
+    edition of visual studio.  See ninja docs for details.
+  - `dyndep`: a file or target (which must also be in `inputs`) that ninja
+    should treat as a dynamic dependency file.  See ninja docs for details.
 
 `add_target()` returns a `mkninja.Target` object which has attributes
 `inputs`, `outputs`, and `after` which may be useful to read (but which
