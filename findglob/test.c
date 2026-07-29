@@ -1811,8 +1811,11 @@ int test_e2e(){
     TEST_CASE(NULL, "example", "!example/", "");
     TEST_CASE(NULL, "example", ":!f:example", "example\n");
 
-    // regression test: negative patterns with non-existent roots is acceptable, should be a noop
+    // regression test: negative patterns with non-existent roots is fine
     TEST_CASE("example", "a", "!does_not_exist", "a\n");
+    #ifndef _WIN32
+    TEST_CASE("example", "a", "!K:/does_not_exist", "a\n");
+    #endif // _WIN32
 
     cleanup_e2e_test();
 
