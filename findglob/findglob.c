@@ -1875,6 +1875,14 @@ int findglob_main(int argc, char **argv){
 #ifndef _WIN32 // UNIX
         char *cret = realpath(oldname, buf);
         if(!cret){
+            // a negative pattern that doesn't exist is ok, but pointless
+            if(patterns[i].anti && (errno == ENOENT || errno == ENOTDIR)){
+                // free the pointless negative pattern
+                pattern_free(&patterns[i]);
+                // replace the hole, decrementing both i and npatterns
+                patterns[i--] = patterns[--npatterns];
+                continue;
+            }
             perror(oldname);
             retval = 1;
             goto cleanup;
@@ -1888,6 +1896,8 @@ int findglob_main(int argc, char **argv){
             retval = 1;
             goto cleanup;
         }else if(dret == 0){
+            /* note: GetFullPathNameA() doesn't check for file existence, so
+               there's no need to handle the ENOENT equivalent */
             win_perror(oldname);
             retval = 1;
             goto cleanup;
