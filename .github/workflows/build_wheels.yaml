@@ -15,7 +15,7 @@ jobs:
   #   runs-on: ${{ matrix.os }}
   #   strategy:
   #     matrix:
-  #       os: [ubuntu-20.04, macos-10.15, windows-2019]
+  #       os: [ubuntu-22.04, macos-10.15, windows-2019]
   #   steps:
   #     - uses: actions/checkout@v4
 
@@ -35,15 +35,15 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-20.04
+          - os: ubuntu-22.04
             arch: "x86_64"
-          - os: ubuntu-20.04
+          - os: ubuntu-22.04
             arch: "i686"
-          - os: ubuntu-20.04
+          - os: ubuntu-22.04
             arch: "aarch64"
-          - os: ubuntu-20.04
+          - os: ubuntu-22.04
             arch: "ppc64le"
-          - os: ubuntu-20.04
+          - os: ubuntu-22.04
             arch: "s390x"
           - os: windows-2019
             arch: "AMD64"
@@ -72,7 +72,7 @@ jobs:
   build_sdist:
     name: Build sdist
     # needs: [test_findglob]
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
 
@@ -87,7 +87,7 @@ jobs:
   test_sdist:
     name: Test sdist with python ${{ matrix.python }}
     needs: [build_sdist]
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
       matrix:
@@ -118,7 +118,7 @@ jobs:
     name: Merge artifacts
     # since we delete-merge, don't merge until after test_sdist is done
     needs: [build_wheels, test_sdist]
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/upload-artifact/merge@v4
         with:
@@ -128,7 +128,7 @@ jobs:
   check_dist:
     name: Check dist
     needs: [merge_artifacts]
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/download-artifact@v4
         with:
