@@ -304,7 +304,7 @@ class Target:
     def __str__(self):
         assert len(self.outputs) == 1, (
             "only targets with exactly one output support implicit string "
-            f"conversions; this target has outputs {outputs}"
+            f"conversions; this target has outputs {self.outputs}"
         )
         return str(self.outputs[0])
 
