@@ -1875,6 +1875,10 @@ int findglob_main(int argc, char **argv){
 #ifndef _WIN32 // UNIX
         char *cret = realpath(oldname, buf);
         if(!cret){
+            // a negative pattern that doesn't exist is ok, but pointless
+            if(patterns[i].anti && (errno == ENOENT || errno == ENOTDIR)){
+                goto skip_missing_anti_root;
+            }
             perror(oldname);
             retval = 1;
             goto cleanup;
@@ -1900,6 +1904,14 @@ int findglob_main(int argc, char **argv){
 #endif
         retval = pattern_rewrite_start(&patterns[i], real);
         if(retval) goto cleanup;
+
+        continue;
+
+    skip_missing_anti_root:
+        // free the pointless negative pattern
+        pattern_free(&patterns[i]);
+        // replace the hole, decrementing both i and npatterns
+        patterns[i--] = patterns[--npatterns];
     }
 
     retval = findglob(patterns, npatterns);
